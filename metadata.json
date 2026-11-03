@@ -1,0 +1,6 @@
+{
+  "name": "DCAR Limousine MES - Hệ Thống Điều Hành Sản Xuất",
+  "description": "Hệ thống Quản lý và Điều hành Sản xuất MES xe Limousine cao cấp: Tiếp nhận & sinh mã LSX (G/T/B), Cân đối MRP/CRP, Lập lịch thông minh theo cụm xe, Điều phối 17 tổ theo 4 cụm Ngày 1-14, Dynamic Rescheduling và Quản trị BTP/WIP.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

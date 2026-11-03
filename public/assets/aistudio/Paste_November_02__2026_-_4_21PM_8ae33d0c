@@ -1,0 +1,240 @@
+```python
+import pandas as pd
+import os
+
+files = ["ĐỊNH MỨC, ĐỊnh biên.xlsx", "Dong chay san pham_2.xlsx", "KHVT.xlsx"]
+for f in files:
+    if os.path.exists(f):
+        print(f"\n==================== FILE: {f} ====================")
+        xls = pd.ExcelFile(f)
+        print("Sheets:", xls.sheet_names)
+        for s in xls.sheet_names:
+            print(f"\n--- Sheet: {s} ---")
+            df = pd.read_excel(f, sheet_name=s)
+            print(df.head(10))
+            print("Columns:", df.columns.tolist())
+    else:
+        print(f"File not found: {f}")
+
+
+```
+
+```text
+
+==================== FILE: ĐỊNH MỨC, ĐỊnh biên.xlsx ====================
+Sheets: ['ĐỊNH MỨC TIÊU CHUẨN (2)', 'DS NV TỔ SẢN XUẤT']
+
+--- Sheet: ĐỊNH MỨC TIÊU CHUẨN (2) ---
+  BẢNG ĐỊNH MỨC NĂNG SUẤT TIÊU CHUẨN THEO TỔ - XE NHỎ/ NGÀY       Unnamed: 1             Unnamed: 2                       Unnamed: 3                                              Unnamed: 4  Unnamed: 5 Unnamed: 6 Unnamed: 7
+0                                                       STT               TỔ              CÔNG ĐOẠN                          GHI CHÚ                                               ĐBNS/ 4XE    DÒNG NHỎ  ĐBNS/ 2XE    GHI CHÚ
+1                                                       NaN              NaN                    NaN                              NaN                                                     NaN  THƯƠNG GIA        NaN        NaN
+2                                                       NaN              NaN                    NaN                              NaN                                                     NaN         NaN        NaN        NaN
+3                                                         1  AUDIO1\n(13 NV)   LÀM DÂY ĐIỆN\n(5 NV)             LÀM DÂY ĐIỆN\n(5 NV)                                                    10NV           2        5nv        NaN
+4                                                       NaN              NaN     VÔ RUỘT GÀ\n(2 NV)               VÔ RUỘT GÀ\n(2 NV)                                                     2NV           3        1nv        NaN
+5                                                       NaN              NaN       CẮT LASER\n(1NV)                 CẮT LASER\n(1NV)  CẮT LASER\n(1NV) KHÔNG NÂNG ĐƯỢC DO MÁY MÓC 3XE 1 NGÀY           3        1nv      dư 3h
+6                                                       NaN              NaN    LÀM RUỘT ĐÈN\n(2NV)                              NaN                                                     3NV           3        2nv      dư 2h
+7                                                       NaN              NaN  HT LẮP RÁP ĐÈN\n(3NV)                              NaN                                                     3NV           4        NaN        NaN
+8                                                         2       CẮT\n(7NV)                    NaN  Đối với thảm + áo trùm. ~3h/5xe                                                     9NV           3        NaN        NaN
+9                                                         3     MAY\n(10 NV)                    NaN                              NaN                                                    12NV           3        NaN        NaN
+Columns: ['BẢNG ĐỊNH MỨC NĂNG SUẤT TIÊU CHUẨN THEO TỔ - XE NHỎ/ NGÀY', 'Unnamed: 1', 'Unnamed: 2', 'Unnamed: 3', 'Unnamed: 4', 'Unnamed: 5', 'Unnamed: 6', 'Unnamed: 7']
+
+--- Sheet: DS NV TỔ SẢN XUẤT ---
+  DANH SÁCH TỔ SẢN XUẤT Unnamed: 1 Unnamed: 2          Unnamed: 3        Unnamed: 4         Unnamed: 5           Unnamed: 6 Unnamed: 7        Unnamed: 8        Unnamed: 9         Unnamed: 10 Unnamed: 11 Unnamed: 12  Unnamed: 13 Unnamed: 14                                      Unnamed: 15    Unnamed: 16    Unnamed: 17 Unnamed: 18  Unnamed: 19
+0                   STT       MSNV    vân tay           HỌ VÀ TÊN        TỔ/BỘ PHẬN            CHỨC VỤ       NGÀY NHẬN VIỆC       DM 2              DM 4  Nhân sự Hiện Tại  Công đoạn\n(ĐM NS)         NaN   Năng Suất  DM xe/người     ĐỀ XUẤT  NĂNG SUẤT THỰC TẾ 8H*NGÀY\n(SỐ NGƯỜI*CÔNG ĐOẠN)  ĐBNS 4XE/NGÀY  ĐBNS 2XE/NGÀY         NaN          NaN
+1                   NaN        NaN        NaN                 NaN               NaN                NaN                  NaN        NaN               NaN               NaN           Công đoạn    Số Người         NaN          NaN         NaN                                              NaN            NaN            NaN         NaN          NaN
+2                   NaN        NaN        NaN                   B     KHỐI SẢN XUẤT                NaN                  NaN        NaN               NaN               NaN                 NaN         NaN         NaN          NaN         NaN                                              NaN            NaN            NaN         NaN          NaN
+3                   NaN        NaN        NaN                 B.2         TRỰC TIẾP                NaN                  NaN        NaN               NaN               NaN                 NaN         NaN         NaN          NaN         NaN                                              NaN            NaN            NaN         NaN          NaN
+4                     1    GMG0375      00109            Sơn Minh        Tổ mẫu ghế  Tổ trưởng mẫu ghế  2017-03-01 00:00:00          0  Tổ mẫu ghế Total                 4                 NaN         NaN         NaN          NaN         NaN                                              NaN            NaN            NaN          SX          NaN
+5                     2    GMG0374      00108     Trần Hoàng Hiệp        Tổ mẫu ghế  Nhân viên mẫu ghế  2017-03-01 00:00:00        NaN               NaN               NaN                 NaN         NaN         NaN          NaN         NaN                                              NaN            NaN            NaN          SX          NaN
+6                     3    GMG1229      00473  Nguyễn Trọng Nghĩa        Tổ mẫu ghế  Nhân viên mẫu ghế  2018-07-11 00:00:00        NaN               NaN               NaN                 NaN         NaN         NaN          NaN         NaN                                              NaN            NaN            NaN          SX          NaN
+7                     4        NaN        NaN      Lê Hoàng Giang    Tổ Lắp ráp ghế          Công nhân  2017-03-01 00:00:00        NaN               NaN               NaN                 NaN         NaN         NaN          NaN         NaN                                              NaN            NaN            NaN          SX          NaN
+8                   NaN        NaN        NaN                 NaN  Tổ mẫu ghế Total                  4                  NaN        NaN               NaN               NaN                 NaN         NaN         NaN          NaN         NaN                                              NaN            NaN            NaN         NaN          NaN
+9                     5        NaN        NaN    Nguyễn Công Khoa         Khuôn mẫu          Tổ trưởng  2017-03-01 00:00:00      B.2.5   Khuôn mẫu Total                 5                 NaN         NaN         NaN          NaN         NaN                                              NaN            NaN            NaN          SX          NaN
+Columns: ['DANH SÁCH TỔ SẢN XUẤT', 'Unnamed: 1', 'Unnamed: 2', 'Unnamed: 3', 'Unnamed: 4', 'Unnamed: 5', 'Unnamed: 6', 'Unnamed: 7', 'Unnamed: 8', 'Unnamed: 9', 'Unnamed: 10', 'Unnamed: 11', 'Unnamed: 12', 'Unnamed: 13', 'Unnamed: 14', 'Unnamed: 15', 'Unnamed: 16', 'Unnamed: 17', 'Unnamed: 18', 'Unnamed: 19']
+File not found: Dong chay san pham_2.xlsx
+
+==================== FILE: KHVT.xlsx ====================
+Sheets: ['DINH MUC TONG', 'Sheet1', 'TON KHO', 'XUAT', 'FC', 'Xuat T4,2026']
+
+--- Sheet: DINH MUC TONG ---
+  Unnamed: 0     nhớ đặt                                                                                                    tem nhôm Unnamed: 3 Unnamed: 4 Unnamed: 5 Unnamed: 6 Unnamed: 7 Unnamed: 8            Unnamed: 9                  20                Unnamed: 11          Unnamed: 12            Unnamed: 13       Unnamed: 14             0           5   Unnamed: 17                3            3.1                            5.1                      Unnamed: 21                 Unnamed: 22                     Unnamed: 23   Unnamed: 24       Unnamed: 25 Unnamed: 26 Unnamed: 27 Unnamed: 28 Unnamed: 29  Unnamed: 30 Unnamed: 31   Unnamed: 32 Unnamed: 33 Unnamed: 34  Tháng 02  Tháng 03
+0        STT   Mã vật tư                                                                                                  Tên vật tư        Đvt        ĐMT       CĐNC       CĐDD       KSNC       KSTC  Ford MB 11 +12c 2025  Ford TG 11+12 2025  Ford MB 11c ( 10 ghế VIP)  Ford Limousine 12 C  Ford MB 10c ( nền 16)  Ford Premium 10c  So President  ford TĐ 10  HEACO 19 -23  Ford VIPLOUNGE   Solati TĐ 10C  SOLATI MAYBACH 11-12 CHỖ 2025  SOLATI THƯƠNG GIA 12C +11C CHỖ   SOLATI MAYBACH 10 CHỖ 2025  SOLATI THƯƠNG GIA 10C CHỖ 2025  QVM 12C 2025  HÀNG CẦN SỬ DUNG     TỒN KHO   CÒN THIẾU        XUẤT     CHI CHÚ  SL ĐẶT HÀNG    NGÀY ĐẶT  NGÀY YC GIAO      REMARK         NCC       NaN       NaN
+1          1  ICGTH00410  Cần gạt bằng nhựa trong trường hợp khẩn cấp dùng cho xe ô tô, code: 160-015-0004 - NK (Cần gạt thoát hiểm)        cái          4        NaN        NaN        NaN        NaN                     0                   0                          0                    0                      0                 0           NaN         NaN           NaN                0              1                              1                                1                           1                               0             0                 8         159         151           6         NaN          NaN         NaN           NaN         NaN         NaN       NaN       NaN
+2          2  VCHIXT0408                                                      Chỉ Polyester 20# màu (Chỉ số 4 màu xám trắng - S4005)       cuộn          0        NaN        NaN        NaN        NaN                     0                   0                          0                    0                      0                 0           NaN         NaN           NaN                0              0                              0                                0                           0                               0             0                 0          76          76           0         NaN          NaN         NaN           NaN         NaN         NaN       NaN       NaN
+3          3  VGTS43S304                                                                         Google Tivi Sony 4K 43 inch K-43S30        cái          1        NaN        NaN        NaN        NaN                     0                   0                          0                    0                      0                 0             1         NaN           NaN                0              0                              0                                0                           0                               0             0                 0           2           2           0         NaN          NaN         NaN           NaN         NaN         NaN       NaN       NaN
+4          4  VBENT06008                                                                        Vải không dệt (Vải ben trắng - 60mm)          m        314        NaN        NaN        NaN        NaN                    25                  25                         25                   25                     25                25           NaN         NaN           NaN               14             25                             25                               25                          25                              25            25               742           0        -742           0         NaN          NaN         NaN           NaN         NaN         NaN       NaN       NaN
+5          5  VDHKARGN17                                                             Van giảm áp khí Argon ren ngoài (Đồng hồ Argon)        cái          0        NaN        NaN        NaN        NaN                     0                   0                          0                    0                      0                 0           NaN         NaN           NaN                0              0                              0                                0                           0                               0             0                 0           9           9           0         NaN          NaN         NaN           NaN         NaN         NaN       NaN       NaN
+6          6  SALGT50011                                                                                          Ampli  JBL GT50011        cái          1        NaN        NaN        NaN        NaN                     0                   0                          0                    0                      0                 0             1         NaN           NaN                0              0                              0                                0                           0                               0             0                 0          24          24           0         NaN          NaN         NaN           NaN         NaN         NaN       NaN       NaN
+7          7  SALGT90041                                                                                          Ampli  JBL GT90041        cái          1        NaN        NaN        NaN        NaN                     0                   0                          0                    0                      0                 0             1         NaN           NaN                0              0                              0                                0                           0                               0             0                 0          26          26           0         NaN          NaN         NaN           NaN         NaN         NaN       NaN       NaN
+8          8  SBACNHUA11                                                                                       Bạc nhựa IGUS 1213-06        cái        150        NaN        NaN        NaN        NaN                     0                   0                          0                    0                      0                 0           NaN          30           100                0             20                              0                                0                           0                               0             0               210        2908        2698         490         NaN          NaN         NaN           NaN         NaN         NaN       NaN       NaN
+9          9  SBIGUSWW11                                                                                 Bạc trượt Igus WW 10-120-10         bộ          2        NaN        NaN        NaN        NaN                     0                   0                          0                    0                      0                 0             2         NaN           NaN                0              0                              0                                0                           0                               0             0                 0          28          28           4         NaN          NaN         NaN           NaN         NaN         NaN       NaN       NaN
+Columns: ['Unnamed: 0', 'nhớ đặt', 'tem nhôm', 'Unnamed: 3', 'Unnamed: 4', 'Unnamed: 5', 'Unnamed: 6', 'Unnamed: 7', 'Unnamed: 8', 'Unnamed: 9', 20, 'Unnamed: 11', 'Unnamed: 12', 'Unnamed: 13', 'Unnamed: 14', 0, 5, 'Unnamed: 17', 3, '3.1', '5.1', 'Unnamed: 21', 'Unnamed: 22', 'Unnamed: 23', 'Unnamed: 24', 'Unnamed: 25', 'Unnamed: 26', 'Unnamed: 27', 'Unnamed: 28', 'Unnamed: 29', 'Unnamed: 30', 'Unnamed: 31', 'Unnamed: 32', 'Unnamed: 33', 'Unnamed: 34', 'Tháng 02', 'Tháng 03']
+
+--- Sheet: Sheet1 ---
+Empty DataFrame
+Columns: []
+Index: []
+Columns: []
+
+--- Sheet: TON KHO ---
+    STT   Mã vật tư                                                                                                  Tên vật tư   Đvt  HHCITY0B  HHCITY00  Tổng VT Nhóm vật tư 1 Nhóm vật tư 2  Nhóm vật tư 3
+0   1.0  VAPOLLO001                                                                                              Apollo PU Foam  chai      28.0       0.0     28.0        NVLI00        NVLI00            NaN
+1   2.0  QMASQZ0010                                                                Bộ massage hơi QZ-KG005R- NK (KC-KG005L- NK)    Bộ       7.0       0.0      7.0            NK        NVLI00            NaN
+2   3.0  ICGTH00010    Cần gạt bằng nhựa trong trường họp khẩn cấp dùng cho xe ô tô, code: 111-03-013 - NK (Cần gạt thoát hiểm)   cái       0.0       0.0      0.0            NK        NVLI00            NaN
+3   4.0  ICGTH00410  Cần gạt bằng nhựa trong trường hợp khẩn cấp dùng cho xe ô tô, code: 160-015-0004 - NK (Cần gạt thoát hiểm)   cái     159.0       0.0    159.0            NK        NVLI00            NaN
+4   5.0  VBCLNS0005                                                                                Cây lau san inox megahome S5   cây       0.0       0.0      0.0        VTCCDC           NaN            NaN
+5   6.0  VKEOFAN014                                                                Chất trám đa dụng Fanxibond silicone sealant  chai       0.0       0.0      0.0        NVLI00        NVLI00            NaN
+6   7.0  VCHIXT0408                                                      Chỉ Polyester 20# màu (Chỉ số 4 màu xám trắng - S4005)  cuộn      76.0       0.0     76.0        NVLI00        NVLI00            NaN
+7   8.0  VSACL05L06                                                                                     chữ J Sắt cắt laser 5ly   cái       0.0      13.0     13.0        NVLI00        NVLI00            NaN
+8   9.0  VDCNMX0000                                                                                      Da công nghiệp màu xám     m       0.0       0.0      0.0        NVLI00        NVLI00            NaN
+9  10.0  VAIGIADA09                                                                          Da công nghiệp VKC05 màu kem 1.3mm     m       0.0       0.0      0.0        NVLI00        NVLI00            NaN
+Columns: ['STT', 'Mã vật tư', 'Tên vật tư', 'Đvt', 'HHCITY0B', 'HHCITY00', 'Tổng VT', 'Nhóm vật tư 1', 'Nhóm vật tư 2', 'Nhóm vật tư 3']
+
+--- Sheet: XUAT ---
+            Unnamed: 0  Unnamed: 1 Unnamed: 2 Unnamed: 3      Unnamed: 4                                                           Unnamed: 5 Unnamed: 6 Unnamed: 7   Unnamed: 8                                             Unnamed: 9 Unnamed: 10 338643.01000000024 Unnamed: 12 Unnamed: 13 Unnamed: 14 Unnamed: 15  Unnamed: 16    Unnamed: 17 Unnamed: 18
+0            Ngày c.từ  Mã c.từ in    Số c.từ   Mã khách  Tên khách hàng                                                            Diễn giải  Tổng tiền    Mã c.từ    Mã vật tư                                             Tên vật tư         Đvt           Số lượng     Đơn giá  Thành tiền       Mã nx      Mã kho  Mã sản phẩm  Mã phân xưởng    Mã dự án
+1  2025-01-01 00:00:00          HD    1910160  C1TN00GT1       Tổ điện 1                                                   Xuất kho -N2402008    4160127        HDA   VTEMCDDD12                               Tem xe Cung Điện Di Động          bộ                  2  2080063.38     4160127        1311    HHCITY0B          NaN            NaN         NaN
+2  2025-01-01 00:00:00          HD    1911127  C1TN00GT1       Tổ điện 1  Xuất kho -N2402009 - Ford Vip Lounge 2023 - dựa liền + mạch ghế vip  257065571        HDA  TPXHUTRC190  Thành phẩm xe Dcar Hạng Thương Gia 19 chỗ - Tracomeco          bộ                  1   257065571   257065571        1311    HHCITY00          NaN            NaN    KKDGINA0
+3  2025-01-01 00:00:00          HD    1912193  C1TN00GT1       Tổ điện 1  Xuất kho -N2402009 - Ford Vip Lounge 2023 - dựa liền + mạch ghế vip    3043904        HDA   QDENB12701                                      đèn trần 127 Blue         cái                  6   507317.36     3043904        1311    HHCITY0B          NaN            NaN         NaN
+4  2025-01-01 00:00:00          HD    2009002   YKHACHLE       Tổ điện 1  Xuất kho -N2402009 - Ford Vip Lounge 2023 - dựa liền + mạch ghế vip    6535747        HDA   HMH0154202                                 Màn hình gối đầu 15.4"         cái                  3  1184367.48     3553102        1311    HHCITY0B          NaN            NaN         NaN
+5  2025-01-01 00:00:00          HD    2009002   YKHACHLE       Tổ điện 1  Xuất kho -N2402009 - Ford Vip Lounge 2023 - dựa liền + mạch ghế vip    6535747        HDA   VOCDD50001                                ổ cứng di động WD 500GB         cái                  4   745661.16     2982645        1311    HHCITY0B          NaN            NaN         NaN
+6  2025-01-01 00:00:00          HD    2011021   YKHACHLE       Tổ điện 1  Xuất kho -N2402010 - Ford Vip Lounge 2023 - dựa liền + mạch ghế vip    9474940        HDA   HMH0154202                                 Màn hình gối đầu 15.4"         cái                  8  1184367.48     9474940        1311    HHCITY0B          NaN            NaN         NaN
+7  2025-01-01 00:00:00          HD    2011022   YKHACHLE       Tổ điện 1  Xuất kho -N2402010 - Ford Vip Lounge 2023 - dựa liền + mạch ghế vip    2973739        HDA   VOCDD50001                                ổ cứng di động WD 500GB         cái                  3   991246.33     2973739        1311    HHCITY00          NaN            NaN         NaN
+8  2025-01-01 00:00:00          HD    2011023   YKHACHLE       Tổ điện 1  Xuất kho -N2402010 - Ford Vip Lounge 2023 - dựa liền + mạch ghế vip     890500        HDA   VDCHDD0310                             Cáp HDD WD USB 3.0 - 120cm         sợi                  4       68500      685000        1311    HHCITY0B          NaN            NaN         NaN
+9  2025-01-01 00:00:00          HD    2011023   YKHACHLE       Tổ điện 1  Xuất kho -N2402010 - Ford Vip Lounge 2023 - dựa liền + mạch ghế vip     890500        HDA   VDCHDD0310                             Cáp HDD WD USB 3.0 - 120cm         sợi                  3       68500      205500        1311    HHCITY00          NaN            NaN         NaN
+Columns: ['Unnamed: 0', 'Unnamed: 1', 'Unnamed: 2', 'Unnamed: 3', 'Unnamed: 4', 'Unnamed: 5', 'Unnamed: 6', 'Unnamed: 7', 'Unnamed: 8', 'Unnamed: 9', 'Unnamed: 10', 338643.01000000024, 'Unnamed: 12', 'Unnamed: 13', 'Unnamed: 14', 'Unnamed: 15', 'Unnamed: 16', 'Unnamed: 17', 'Unnamed: 18']
+
+--- Sheet: FC ---
+   STT                          LOẠI XE THÁNG\n01-2026  THÁNG\n02-2026  THÁNG\n03-2026  THÁNG\n04-2026  THÁNG\n05-2026  THÁNG\n06-2026  THÁNG\n07-2026  THÁNG\n08-2026  THÁNG\n09-2026  Unnamed: 11
+0    1                     FORD TRANSIT             28            28.0            68.0            68.0            90.0            68.0            56.0            14.0            13.0          NaN
+1  1.1     FORD TRANSIT HẠNG THƯƠNG GIA             20            20.0            20.0            20.0            30.0            20.0            35.0            10.0             1.0          NaN
+2  1.2    FORD TRANSIT HẠNG THƯỢNG ĐỈNH              5             5.0            10.0            10.0            20.0            18.0             6.0             NaN             NaN          NaN
+3  1.3          FORD TRANSIT VIP LOUNGE              3             3.0             6.0             6.0             0.0             8.0             NaN             NaN             NaN          NaN
+4  1.4           FORD TRANSIT PRESIDENT              0             0.0             2.0             2.0             0.0             2.0             NaN             NaN             NaN          NaN
+5  1.5                        LIMOUSINE              0             0.0            30.0            30.0            40.0            20.0            15.0             4.0            12.0          NaN
+6    2                   HYUNDAI SOLATI              8             8.0             4.0             4.0             0.0             5.0             5.0             1.0             0.0          NaN
+7  2.1   HYUNDAI SOLATI HẠNG THƯƠNG GIA              5             5.0             2.0             2.0             0.0             2.0             4.0             1.0             NaN          NaN
+8  2.2  HYUNDAI SOLATI HẠNG THƯỢNG ĐỈNH              3             3.0             2.0             2.0             0.0             3.0             1.0             NaN             NaN          NaN
+9  NaN         HYUNDAI SOLATI PRESIDENT              0             0.0             0.0             0.0             0.0             NaN             NaN             NaN             NaN          NaN
+Columns: ['STT', 'LOẠI XE', 'THÁNG\n01-2026', 'THÁNG\n02-2026', 'THÁNG\n03-2026', 'THÁNG\n04-2026', 'THÁNG\n05-2026', 'THÁNG\n06-2026', 'THÁNG\n07-2026', 'THÁNG\n08-2026', 'THÁNG\n09-2026', 'Unnamed: 11']
+
+--- Sheet: Xuat T4,2026 ---
+      Unnamed: 0                                                                       Unnamed: 1 Unnamed: 2 967189.13 Unnamed: 4  Unnamed: 5 Unnamed: 6
+0      Mã vật tư                                                                       Tên vật tư        Đvt  Số lượng    Đơn giá  Thành tiền      Mã nx
+1  A1FOLM12BOD01           Bộ dây điện xe Dcar Limousine 12C PB 2026 -  Ford Transite 18C premium         Bộ        24  257065571   257065571       1311
+2  A1FOPR10AMT60      Hệ thống âm thanh xe Dcar President 10C PB 2026-  Ford Transite 18C premium         bộ         1  991246.33     2973739       1311
+3  A1FOPR10BOD60             Bộ dây điện xe Dcar president 10C PB 2026- Ford Transite 18C premium         Bộ         1      68500      685000       1311
+4  A1FOTD10AMT60     Hệ thống âm thanh xe Dcar thượng đỉnh 10C PB 2026- Ford transite premium 18C         Bộ         9      68500      205500       1311
+5  A1FOTD10BD000             Bộ dây điện xe Dcar thượng đỉnh 10C - Ford transite premium 18C 2024         Bộ         3   26479.04     1270994       1311
+6  A1FOTD10BD601          Bộ dây điện xe Dcar thượng đỉnh 10C PB 2026 - Ford transite premium 18C         Bộ         9          0           0       1311
+7  A1FOTD12BD000             Bộ dây điện xe Dcar thượng đỉnh 12C - Ford transite premium 18C 2024         Bộ         3  578027614   578027614       1311
+8  A1FOTG10BD250                Bộ dây điện xe Dcar Thương gia 10C - PB 2025 - Ford Transite 2025         Bộ         1          0           0       1311
+9  A1FOTG12AM251  Hệ thống âm thanh xe Dcar Thương gia Full Option 12C -Ford Transite 18C premium         Bộ        38      40000      480000       1311
+Columns: ['Unnamed: 0', 'Unnamed: 1', 'Unnamed: 2', 967189.13, 'Unnamed: 4', 'Unnamed: 5', 'Unnamed: 6']
+
+
+```
+
+Dạ Sếp, dựa trên quy trình thực tế từ các file biểu mẫu, Lệnh sản xuất (`LSX-G2610021`) và tài liệu dòng chảy sản phẩm vừa phân tích, dưới đây là **Bản thiết kế kỹ thuật hoàn chỉnh (System Specification & Prompt)** dành riêng cho việc xây dựng ứng dụng **MES đa nền tảng (Web & Mobile)**. Sếp có thể copy trực tiếp đoạn mô tả này vào **Google AI Studio** để vibe code ứng dụng một cách chính xác nhất.
+
+---
+
+# 🚀 TÀI LIỆU KỸ THUẬT (SYSTEM SPECIFICATION) XÂY DỰNG APP MES - DCAR LIMOUSINE
+
+## 1. KIẾN TRÚC & PHÂN QUYỀN HỆ THỐNG (RBAC)
+
+* **Đa nền tảng:** Web App (Dành cho Quản lý đơn hàng, Kế hoạch, Trưởng phòng sản xuất, Giám đốc xem Dashboard) & Mobile Responsive App (Dành cho Quản đốc, Tổ trưởng cập nhật tiến độ tại xưởng).
+* **Kết nối Dữ liệu Nội bộ:** Đồng bộ thời gian thực với cơ sở dữ liệu từ ổ đĩa/Server nội bộ (thông qua API trỏ trực tiếp đến file Excel/SQL Server chuẩn hóa gồm các bảng: `DON_HANG`, `QUY_TRINH_ROUTING`, `KHO_VAT_TU_KITTING`, `NANG_LUC_XUONG`, `TON_KHO_BTP`).
+* **Phân quyền người dùng (5 Role chính):**
+1. `Order_Admin`: Tạo và quản lý đơn hàng.
+2. `Planner`: Chạy cân đối vật tư (MRP), năng lực (CRP) và lập kế hoạch tuần.
+3. `Production_Manager (TPSX)`: Phê duyệt lịch tuần để chính thức ban hành Lệnh sản xuất (LSX).
+4. `Foreman / Team_Lead`: Cập nhật tiến độ 17 tổ nghiệp vụ, báo cáo lỗi/Rework.
+5. `Executive (BGD)`: Xem toàn bộ Executive Dashboard và hệ thống cảnh báo.
+
+
+
+---
+
+## 2. CHI TIẾT 3 BƯỚC QUY TRÌNH TỰ ĐỘNG HÓA TRÊN APP
+
+### BƯỚC 1: TIẾP NHẬN & TẠO LỆNH SẢN XUẤT (ORDER INTAKE)
+
+* **Giao diện nhập liệu:** Nhân viên quản lý đơn hàng tiếp nhận thông tin từ Kinh doanh (KD) và điền form tạo đơn (Tham khảo mẫu LSX G2610021).
+
+
+* **Phân loại đơn hàng (Ký tự đầu tiên của Mã LSX):**
+* `G`: Đơn bán thương mại (General Sales)
+* `T`: Đơn xe trưng bày (Display)
+* `B`: Đơn xe bảo hành / Sửa chữa (Warranty / Rework)
+
+
+* **Thuật toán sinh mã tự động (ID Generation Rule):**
+* Định dạng: `[Loại đơn][Năm 2 chữ số][Tháng 2 chữ số][Số thứ tự tịnh tiến 3 chữ số]`
+* *Ví dụ:* `G2610021` (Đơn bán, năm 2026, tháng 10, số thứ tự 021).
+
+
+* Hệ thống tự động kiểm tra database, đếm số lượng đơn trong tháng tương ứng để tăng dần (`COUNT + 1`).
+
+
+
+### BƯỚC 2: CÂN ĐỐI & LẬP KẾ HOẠCH SẢN XUẤT TUẦN (MRP/CRP & SCHEDULING)
+
+* **Cân đối tự động:**
+* Kiểm tra định mức nguyên phụ liệu (`KHVT.xlsx`) và tồn kho thực tế (`TON KHO`).
+* Kiểm tra năng lực sản xuất khả dụng của các xưởng (`ĐỊNH MỨC, ĐỊnh biên.xlsx`).
+
+
+* **Thuật toán Gợi ý Lập lịch Tuần (Smart Scheduling Algorithm):**
+* **Tiêu chuẩn 1:** Ưu tiên theo thứ tự Ngày giao hàng mong muốn / Ngày nhận xe (`08/11/2026`, `13/11/2026`).
+
+
+* **Tiêu chuẩn 2 (Gom nhóm dòng xe):** Nếu có nhiều đơn hàng cùng dòng xe (ví dụ: *Premium+ 18c*, *Thương Gia 11c*) có thời gian giao xe gần nhau (biên độ $\pm 2$ ngày), hệ thống tự động gợi ý **gom nhóm chạy cùng chuyền** để tối ưu thời gian ra phôi, cắt vật tư và đổi khuôn.
+
+
+
+
+* **Giao diện Phê duyệt (Approval Workflow):**
+* Kế hoạch tuần hiển thị dưới dạng **Bản gợi ý (Draft Schedule)** kèm bảng cân đối vật tư và năng lực.
+* **Bắt buộc:** Phải có nút **Phê duyệt (Approve by TPSX)** thì Lệnh sản xuất mới chính thức được ban hành xuống các xưởng.
+
+
+
+### BƯỚC 3: PHÂN BỔ CHI TIẾT & ĐIỀU CHỈNH ĐỘNG (DISPATCHING & DYNAMIC RESCHEDULING)
+
+* **Phân bổ 17 tổ nghiệp vụ:** Chia nhỏ tiến độ theo 4 cụm sản xuất (Gia công linh kiện, Lắp ráp cụm, Lắp ráp tổng thể, KCS & Bàn giao) gắn với mốc thời gian từ Ngày 1 đến Ngày 14 theo ma trận dòng chảy (`Dong chay san pham_2.xlsx`).
+* **Cơ chế Tự động Điều chỉnh (Dynamic Rescheduling):**
+* Khi có sự cố phát sinh tại chuyền (Lỗi KCS phải Rework, thiếu hụt vật tư đột xuất, hoặc biến động nhân sự/máy móc làm giảm năng suất):
+* Hệ thống tự động tính toán lại đường găng (Critical Path), dịch chuyển lịch của các công đoạn phía sau và bắn thông báo cảnh báo đến Quản đốc xưởng.
+
+
+
+---
+
+## 3. THIẾT KẾ HỆ THỐNG DASHBOARD QUẢN TRỊ & CẢNH BÁO (ANALYTICS & ALERTS)
+
+Ứng dụng cần tích hợp sẵn các widget phân tích chuyên sâu phục vụ mô hình sản xuất MTO của DCAR:
+
+1. **Executive Dashboard (Dành cho Ban Giám đốc & Quản lý):**
+* **Thẻ KPI:** Tổng số đơn hàng đang chạy (WIP), số đơn theo loại (`G`, `T`, `B`), Tỷ lệ giao xe đúng hạn (OTD).
+* **Biểu đồ tải trọng xưởng (CRP Utilization):** Theo dõi mức độ lấp đầy nhân sự và máy móc theo tuần.
+
+
+2. **Operations Dashboard & Real-time Alert Center (Dành cho Quản đốc & Kế hoạch):**
+* **Cảnh báo tiến độ đơn:** Đổi màu đỏ các đơn hàng sắp đến hạn giao nhưng chưa hoàn thành cụm lắp ráp tổng thể.
+* **Cảnh báo chất lượng:** Thống kê tỷ lệ lỗi phát sinh tại các tổ (Mộc, May, Điện...).
+* **Bảng Quản lý Tồn kho BTP (Semi-Finished Goods):**
+* Theo dõi số lượng BTP tồn đọng tại từng xưởng và từng tổ nghiệp vụ.
+* **Thuật toán Tính toán Thông minh (Smart Calculation Widgets):**
+* *Thời gian hoàn thành BTP tồn:* Dựa vào định mức năng suất thợ/giờ (`ĐỊNH MỨC, ĐỊnh biên.xlsx`), hệ thống tự động tính ra cần bao nhiêu giờ/ngày để giải quyết dứt điểm lượng BTP đang nằm chờ.
+* *Thời gian hoàn tất khối lượng WIP (Work-in-Queue):* Tính toán chính xác thời gian tổ đó hoàn thành toàn bộ khối lượng hàng đã triển khai nhưng chưa qua công đoạn, giúp phát hiện sớm "nút thắt cổ chai" (Bottleneck).
+
+
+
+
+
+
+
+---
+
+Sếp có thể copy nguyên văn nội dung cấu trúc trên dán vào **Google AI Studio** kèm theo yêu cầu tạo mã nguồn ứng dụng (ví dụ: *“Hãy viết mã nguồn ứng dụng MES hoàn chỉnh dựa trên đặc tả kỹ thuật trên”*) để AI lập trình khung app đa nền tảng cho Sếp ngay lập tức!
