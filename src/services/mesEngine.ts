@@ -6,6 +6,8 @@ import {
   ProductionTeam,
   BTPInventoryItem,
   SystemAlert,
+  TeamDailyProductivity,
+  VehicleEquivBreakdown,
 } from '../types/mes';
 
 /**
@@ -299,5 +301,226 @@ export function analyzeBottlenecks(teams: ProductionTeam[]): {
     bottleneckTeams: bottlenecks,
     totalWipUnits: totalWip,
     avgCycleDays: 14,
+  };
+}
+
+/**
+ * Cấu hình các dòng xe chế tác DCAR Coachbuilder:
+ * Bao gồm hệ số quy đổi xe chuẩn, số ghế VIP, và định mức giờ công chuẩn
+ */
+export const VEHICLE_MODELS_CONFIG: Record<
+  string,
+  {
+    modelKey: string;
+    fullName: string;
+    shortName: string;
+    standardHours: number;
+    seats: number;
+    conversionFactor: number; // Hệ số quy đổi xe chuẩn (so với Ford TG 11c = 1.0)
+    badgeColor: string;
+  }
+> = {
+  'Ford Thương Gia 11c (10 ghế VIP)': {
+    modelKey: 'FORD_TG_11C',
+    fullName: 'Ford Thương Gia 11c (10 ghế VIP)',
+    shortName: 'Ford TG 11c',
+    standardHours: 112,
+    seats: 10,
+    conversionFactor: 1.0,
+    badgeColor: 'blue',
+  },
+  'Ford Thương Gia 12c': {
+    modelKey: 'FORD_TG_12C',
+    fullName: 'Ford Thương Gia 12c',
+    shortName: 'Ford TG 12c',
+    standardHours: 108,
+    seats: 12,
+    conversionFactor: 1.0,
+    badgeColor: 'sky',
+  },
+  'Ford VIP Lounge 2026': {
+    modelKey: 'FORD_VIP_LOUNGE',
+    fullName: 'Ford VIP Lounge 2026',
+    shortName: 'Ford VIP Lounge',
+    standardHours: 138,
+    seats: 7,
+    conversionFactor: 1.25,
+    badgeColor: 'purple',
+  },
+  'Solati Maybach 10 chỗ 2025': {
+    modelKey: 'SOLATI_MAYBACH',
+    fullName: 'Solati Maybach 10 chỗ 2025',
+    shortName: 'Solati Maybach',
+    standardHours: 142,
+    seats: 10,
+    conversionFactor: 1.3,
+    badgeColor: 'amber',
+  },
+  'Solati Thượng Đỉnh 10c': {
+    modelKey: 'SOLATI_THUONG_DINH',
+    fullName: 'Solati Thượng Đỉnh 10c',
+    shortName: 'Solati Thượng Đỉnh',
+    standardHours: 135,
+    seats: 10,
+    conversionFactor: 1.2,
+    badgeColor: 'emerald',
+  },
+  'Ford President Maybach Edition 10c': {
+    modelKey: 'FORD_PRESIDENT',
+    fullName: 'Ford President Maybach Edition 10c',
+    shortName: 'President Maybach',
+    standardHours: 145,
+    seats: 10,
+    conversionFactor: 1.35,
+    badgeColor: 'rose',
+  },
+};
+
+export interface VehicleModelDailySummary {
+  vehicleType: string;
+  shortName: string;
+  standardHours: number;
+  conversionFactor: number;
+  badgeColor: string;
+  actualEquivalentVehicles: number;
+  targetEquivalentVehicles: number;
+  completionRate: number; // %
+  teamsContributingCount: number;
+  contributingTeams: Array<{
+    teamId: string;
+    teamName: string;
+    componentQty: number;
+    componentUnit: string;
+    equivalentVehicles: number;
+    orderCodes: string[];
+  }>;
+  orderCodes: string[];
+}
+
+export interface DailyVehicleConversionSummary {
+  totalTargetEquivalentVehicles: number;
+  totalActualEquivalentVehicles: number;
+  overallVehicleEquivRate: number; // %
+  modelSummaries: VehicleModelDailySummary[];
+}
+
+/**
+ * Tổng hợp toàn diện sản lượng quy đổi ra xe theo ngày và phân tích chi tiết theo loại xe
+ */
+export function calculateDailyVehicleConversionSummary(
+  dayRecords: TeamDailyProductivity[]
+): DailyVehicleConversionSummary {
+  const modelMap = new Map<
+    string,
+    {
+      vehicleType: string;
+      shortName: string;
+      standardHours: number;
+      conversionFactor: number;
+      badgeColor: string;
+      actualEquivalentVehicles: number;
+      targetEquivalentVehicles: number;
+      contributingTeams: Array<{
+        teamId: string;
+        teamName: string;
+        componentQty: number;
+        componentUnit: string;
+        equivalentVehicles: number;
+        orderCodes: string[];
+      }>;
+      orderCodesSet: Set<string>;
+    }
+  >();
+
+  // Khởi tạo các dòng xe mặc định
+  Object.values(VEHICLE_MODELS_CONFIG).forEach((cfg) => {
+    modelMap.set(cfg.fullName, {
+      vehicleType: cfg.fullName,
+      shortName: cfg.shortName,
+      standardHours: cfg.standardHours,
+      conversionFactor: cfg.conversionFactor,
+      badgeColor: cfg.badgeColor,
+      actualEquivalentVehicles: 0,
+      targetEquivalentVehicles: 0,
+      contributingTeams: [],
+      orderCodesSet: new Set<string>(),
+    });
+  });
+
+  let totalTargetEquiv = 0;
+  let totalActualEquiv = 0;
+
+  dayRecords.forEach((team) => {
+    totalTargetEquiv += team.targetEquivalentVehicles || 0;
+    totalActualEquiv += team.actualEquivalentVehicles || 0;
+
+    (team.vehicleBreakdown || []).forEach((item) => {
+      let entry = modelMap.get(item.vehicleType);
+      if (!entry) {
+        entry = {
+          vehicleType: item.vehicleType,
+          shortName: item.shortName || item.vehicleType,
+          standardHours: item.standardHoursPerVehicle || 112,
+          conversionFactor: 1.0,
+          badgeColor: 'slate',
+          actualEquivalentVehicles: 0,
+          targetEquivalentVehicles: 0,
+          contributingTeams: [],
+          orderCodesSet: new Set<string>(),
+        };
+        modelMap.set(item.vehicleType, entry);
+      }
+
+      entry.actualEquivalentVehicles += item.equivalentVehicles;
+      // Ước lượng target theo tỷ lệ efficiency của tổ
+      const teamRatio = team.efficiencyRate > 0 ? team.efficiencyRate / 100 : 1;
+      const targetEstimate = item.equivalentVehicles / teamRatio;
+      entry.targetEquivalentVehicles += targetEstimate;
+
+      entry.contributingTeams.push({
+        teamId: team.teamId,
+        teamName: team.teamName,
+        componentQty: item.componentQty,
+        componentUnit: item.componentUnit,
+        equivalentVehicles: item.equivalentVehicles,
+        orderCodes: item.orderCodes,
+      });
+
+      (item.orderCodes || []).forEach((code) => entry!.orderCodesSet.add(code));
+    });
+  });
+
+  const modelSummaries: VehicleModelDailySummary[] = Array.from(modelMap.values())
+    .map((m) => {
+      const actual = Math.round(m.actualEquivalentVehicles * 100) / 100;
+      const target = Math.round(m.targetEquivalentVehicles * 100) / 100 || actual;
+      const completionRate = target > 0 ? Math.round((actual / target) * 1000) / 10 : 100;
+
+      return {
+        vehicleType: m.vehicleType,
+        shortName: m.shortName,
+        standardHours: m.standardHours,
+        conversionFactor: m.conversionFactor,
+        badgeColor: m.badgeColor,
+        actualEquivalentVehicles: actual,
+        targetEquivalentVehicles: target,
+        completionRate,
+        teamsContributingCount: m.contributingTeams.length,
+        contributingTeams: m.contributingTeams,
+        orderCodes: Array.from(m.orderCodesSet),
+      };
+    })
+    .filter((m) => m.actualEquivalentVehicles > 0 || m.teamsContributingCount > 0)
+    .sort((a, b) => b.actualEquivalentVehicles - a.actualEquivalentVehicles);
+
+  const roundedTarget = Math.round(totalTargetEquiv * 100) / 100;
+  const roundedActual = Math.round(totalActualEquiv * 100) / 100;
+  const overallVehicleEquivRate = roundedTarget > 0 ? Math.round((roundedActual / roundedTarget) * 1000) / 10 : 100;
+
+  return {
+    totalTargetEquivalentVehicles: roundedTarget,
+    totalActualEquivalentVehicles: roundedActual,
+    overallVehicleEquivRate,
+    modelSummaries,
   };
 }

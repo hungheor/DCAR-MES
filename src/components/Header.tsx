@@ -59,7 +59,8 @@ export const Header: React.FC<HeaderProps> = ({
       items: [
         { id: 'dashboard', label: 'Báo Cáo Quản Trị', subtext: 'OTD · OEE · Lead Time · Pareto' },
         { id: 'scheduling', label: 'Lịch Cụm & 17 Tổ', subtext: 'Dispatch ca · Cần làm hôm nay' },
-        { id: 'orders', label: 'Đơn Hàng & Hợp Đồng', subtext: 'Tracking 17 bước · Lô xe' },
+        { id: 'gantt', label: 'Biểu Đồ Gantt Sản Xuất', subtext: 'Tiến độ 14 ngày · Sắc đỏ gần giao' },
+        { id: 'orders', label: 'Đơn Hàng & Hợp Đồng', subtext: 'Tracking 17 bước · Sơ đồ dòng chảy' },
       ],
     },
     {

@@ -5,20 +5,84 @@ export type Role =
   | 'Foreman'
   | 'Executive';
 
-export type OrderType = 'G' | 'T' | 'B'; // G: General Sales, T: Display, B: Warranty/Rework
+export type OrderType = 'G' | 'N' | 'T' | 'B'; // G: Bán thương mại, N: Bán thành phẩm (BTP trữ kho), T: Trưng bày, B: Bảo hành/Rework
 
 export type OrderStatus =
-  | 'INTAKE'              // Tiếp nhận mới
-  | 'SCHEDULED_DRAFT'    // Lịch tuần gợi ý (Draft)
-  | 'APPROVED_LSX'       // TPSX đã phê duyệt, ban hành LSX
-  | 'IN_PRODUCTION'      // Đang trên chuyền (Ngày 1-14)
-  | 'KCS_TEST'           // KCS Kiểm định 120 điểm
-  | 'REWORK_ALERT'       // Phát sinh lỗi KCS / Rework
-  | 'COMPLETED';         // Đã nghiệm thu & Bàn giao
+  | 'INTAKE'                 // Tiếp nhận mới
+  | 'SCHEDULED_DRAFT'       // Lịch tuần gợi ý (Draft)
+  | 'QUEUED_FOR_PRODUCTION' // Đã duyệt kế hoạch - Chờ ngày triển khai sản xuất
+  | 'APPROVED_LSX'          // TPSX đã phê duyệt, ban hành LSX
+  | 'IN_PRODUCTION'         // Đang trên chuyền (Ngày 1-14)
+  | 'KCS_TEST'              // KCS Kiểm định 120 điểm
+  | 'REWORK_ALERT'          // Phát sinh lỗi KCS / Rework
+  | 'COMPLETED';            // Đã nghiệm thu & Bàn giao
 
 export type PriorityLevel = 'P1_CRITICAL' | 'P2_HIGH' | 'P3_NORMAL';
 
 export type ScheduleHealth = 'ON_TRACK' | 'AT_RISK' | 'DELAYED' | 'REWORK';
+
+export interface VehicleEquivBreakdown {
+  vehicleType: string; // Tên dòng xe: 'Ford Thương Gia 11c (10 ghế VIP)', 'Solati Maybach 10 chỗ 2025', etc.
+  shortName: string; // 'Ford TG 11c', 'Solati Maybach', 'Ford VIP Lounge', etc.
+  componentQty: number; // Số lượng linh kiện/công đoạn hoàn thành cho dòng xe này
+  componentUnit: string; // Đơn vị tính: 'ghế VIP', 'bộ vách', 'vỏ xe sơn', 'bát định vị', v.v.
+  componentsPerVehicle: number; // Định mức linh kiện/công đoạn để cấu thành 1 xe hoàn chỉnh
+  equivalentVehicles: number; // Số xe quy đổi = componentQty / componentsPerVehicle
+  standardHoursPerVehicle: number; // Định mức giờ công chuẩn của dòng xe
+  orderCodes: string[]; // Các mã LSX áp dụng
+}
+
+export interface TeamDailyProductivity {
+  id: string;
+  teamId: string;
+  teamCode: string;
+  teamName: string;
+  clusterId: ClusterId;
+  clusterName: string;
+  assignedPosition: string;
+  dateStr: string; // e.g. '2026-11-02'
+  dayOfWeek: string; // 'Thứ 2', 'Thứ 3', ...
+  standardHeadcount: number;
+  actualHeadcount: number;
+  standardHours: number; // Tổng giờ công định mức (vd: 32h)
+  actualHours: number; // Tổng giờ công thực tế làm việc
+  overtimeHours: number; // Giờ OT tăng ca
+  targetOutputUnits: number; // Sản lượng định mức giao (bộ, chi tiết, xe)
+  actualOutputUnits: number; // Sản lượng hoàn thành thực tế
+  unitName: string; // 'bộ ghế', 'xe', 'bộ vách', 'bát sắt', v.v.
+  efficiencyRate: number; // % Hiệu suất năng suất
+  qualityPassRate: number; // % KCS đạt chuẩn lần đầu (FPY)
+  defectCount: number; // Số lỗi phát sinh trong ngày
+  status: 'EXCEEDED' | 'ACHIEVED' | 'UNDERPERFORMING';
+  bottleneckReason?: string;
+  supervisorNote: string;
+  executedOrders: string[]; // Mã các LSX thi công trong ngày
+
+  // Quy đổi ra xe (Vehicle Equivalency)
+  targetEquivalentVehicles: number; // Kế hoạch quy đổi ra xe (Xe TĐ KH, vd: 1.20 xe)
+  actualEquivalentVehicles: number; // Thực tế quy đổi ra xe (Xe TĐ TT, vd: 1.25 xe)
+  vehicleEquivRate: number; // % Đạt sản lượng quy đổi xe (actual / target * 100)
+  vehicleBreakdown: VehicleEquivBreakdown[]; // Chi tiết quy đổi về xe theo từng dòng xe
+}
+
+export interface BTPWaitingBufferItem {
+  id: string;
+  orderId: string;
+  orderCode: string;
+  customerName: string;
+  conversionVersion: string;
+  btpCode: string;
+  btpName: string;
+  completedByTeamId: string;
+  completedByTeamName: string;
+  downstreamTeamId: string;
+  downstreamTeamName: string;
+  quantity: number;
+  completedTimestamp: string;
+  waitingHours: number;
+  status: 'WAITING_TRANSFER' | 'ACCEPTED_IN_PRODUCTION' | 'HOLD_QC';
+  notes?: string;
+}
 
 export interface OrderStepExecution {
   stepId: string;
@@ -112,11 +176,26 @@ export interface OrderItem {
   delayDays?: number;
   standardLeadTimeDays?: number;
   actualLeadTimeDays?: number;
-  batchGroupId?: string; // Grouping ID for similar models
   mrpReady: boolean;
   crpFeasible: boolean;
+  batchGroupId?: string; // Mã nhóm mẻ gom xe (±2 ngày)
+  // BTP & Fulfillment pairing for (G) and (N) orders
+  fulfillmentType?: 'NEW_PRODUCTION' | 'PICK_FROM_BTP'; // Đơn hàng bán (G): sản xuất mới hoặc chọn từ BTP (N)
+  pickedFromBtpOrderId?: string; // Mã đơn BTP (N) được gán cho đơn G này
+  pickedFromBtpOrderCode?: string;
+  btpStatus?: 'IN_INVENTORY' | 'ALLOCATED_TO_SALES'; // Trạng thái đơn hàng (N): 'Tồn kho' hoặc 'Đã xuất cho đơn bán (G)'
+  allocatedToSalesOrderId?: string; // Đơn bán (G) đã nhận đơn BTP này
+  allocatedToSalesOrderCode?: string;
+  allocatedDate?: string; // Ngày xuất BTP cho đơn bán
   notes: string;
   stepExecutions?: OrderStepExecution[];
+  vinNumber?: string; // Số khung xe
+  contactPerson?: string; // Người liên lạc
+  contactPhone?: string; // Điện thoại liên lạc
+  deliveryLocation?: string; // Địa điểm giao xe
+  completedDate?: string; // Ngày hoàn thành xuất xưởng
+  specialRequirements?: string[]; // Yêu cầu đặc biệt
+  inspection120Pass?: boolean; // Nghiệm thu KCS 120 điểm
   defectLog?: {
     teamId: string;
     teamName: string;
@@ -161,7 +240,7 @@ export interface DailyScheduleItem {
 
 export interface NavigationTarget {
   tab: AppModuleId;
-  subView?: string; // e.g. 'JOURNEY_TRACKING' | 'CONTRACTS' | 'LIST' | 'DAILY_DISPATCH' | 'WEEKLY_PLAN' | 'ORDER_BTP_SYNC' | 'CLEARANCE_WIP' | 'QUALITY_PARETO' | 'MEETING'
+  subView?: string; // e.g. 'FLOW_DIAGRAM' | 'JOURNEY_TRACKING' | 'CONTRACTS' | 'LIST' | 'DAILY_DISPATCH' | 'WEEKLY_PLAN' | 'ORDER_BTP_SYNC' | 'CLEARANCE_WIP' | 'QUALITY_PARETO' | 'MEETING' | 'DAILY_PRODUCTIVITY' | 'COMPLETED_ARCHIVE'
   orderId?: string;
   contractId?: string;
   teamId?: string;
@@ -193,10 +272,42 @@ export type AppModuleId =
   | 'dashboard'
   | 'orders'
   | 'scheduling'
+  | 'gantt'
   | 'matrix'
   | 'btp'
   | 'alerts'
   | 'roles';
+
+export interface TeamCapacityStaffing {
+  teamId: string;
+  teamCode: string;
+  teamName: string;
+  clusterId: ClusterId;
+  headcount: number;
+  leadCraftsman: string;
+  assistantCraftsmen: number;
+  stdDailyCapacityVehicles: number;
+  stdHoursPerVehicle: number;
+  nominalEfficiencyRate: number; // e.g. 95%
+  updatedAt?: string;
+  notes?: string;
+}
+
+export interface StageCycleNorm {
+  id: string;
+  vehicleModel: string;
+  stepId: string;
+  stepName: string;
+  teamId: string;
+  teamName: string;
+  clusterId: ClusterId;
+  sequenceOrder: number;
+  standardHours: number;
+  dayStart: number;
+  dayEnd: number;
+  standardLeadDays: number;
+  notes?: string;
+}
 
 export type UserModulePermissions = Record<AppModuleId, AccessLevel>;
 

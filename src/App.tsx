@@ -11,6 +11,9 @@ import {
   AppModuleId,
   AccessLevel,
   NavigationTarget,
+  BTPWaitingBufferItem,
+  TeamCapacityStaffing,
+  StageCycleNorm,
 } from './types/mes';
 import {
   Lock,
@@ -28,6 +31,9 @@ import {
   INITIAL_ALERTS,
   INITIAL_APP_USERS,
   INITIAL_DAILY_SCHEDULES,
+  INITIAL_BTP_WAITING_BUFFERS,
+  INITIAL_TEAM_CAPACITY_STAFFING,
+  INITIAL_STAGE_CYCLE_NORMS,
 } from './data/mockData';
 import {
   runMRPBalancing,
@@ -46,6 +52,7 @@ import { Header } from './components/Header';
 import { ExecutiveDashboard } from './components/ExecutiveDashboard';
 import { OrderManagement } from './components/OrderManagement';
 import { SmartScheduling } from './components/SmartScheduling';
+import { ProductionGanttChart } from './components/ProductionGanttChart';
 import { ProductionMatrix } from './components/ProductionMatrix';
 import { BTPManagement } from './components/BTPManagement';
 import { AlertCenter } from './components/AlertCenter';
@@ -94,7 +101,10 @@ export default function App() {
   const [workcenters, setWorkcenters] = useState<CRPWorkcenter[]>(INITIAL_CRP_WORKCENTERS);
   const [teams, setTeams] = useState<ProductionTeam[]>(INITIAL_TEAMS);
   const [btpItems, setBtpItems] = useState<BTPInventoryItem[]>(INITIAL_BTP_ITEMS);
+  const [btpWaitingBuffers, setBtpWaitingBuffers] = useState<BTPWaitingBufferItem[]>(INITIAL_BTP_WAITING_BUFFERS);
   const [alerts, setAlerts] = useState<SystemAlert[]>(INITIAL_ALERTS);
+  const [teamCapacity, setTeamCapacity] = useState<TeamCapacityStaffing[]>(INITIAL_TEAM_CAPACITY_STAFFING);
+  const [cycleNorms, setCycleNorms] = useState<StageCycleNorm[]>(INITIAL_STAGE_CYCLE_NORMS);
 
   // HANDLER: Update workstation assignment (Phân quyền vị trí trạm)
   const handleUpdateStationAssignment = (
@@ -152,8 +162,16 @@ export default function App() {
     let isMounted = true;
     fetchSheetData()
       .then((res) => {
-        if (isMounted && res.success && res.orders && res.orders.length > 0) {
-          setOrders(res.orders);
+        if (isMounted && res.success) {
+          if (res.orders && res.orders.length > 0) {
+            setOrders(res.orders);
+          }
+          if (res.teamCapacity && res.teamCapacity.length > 0) {
+            setTeamCapacity(res.teamCapacity);
+          }
+          if (res.cycleNorms && res.cycleNorms.length > 0) {
+            setCycleNorms(res.cycleNorms);
+          }
         }
       })
       .catch(() => {
@@ -165,13 +183,23 @@ export default function App() {
   }, []);
 
   // HANDLER: Load data from Google Sheet
-  const handleDataLoadedFromSheet = (sheetOrders: OrderItem[]) => {
+  const handleDataLoadedFromSheet = (
+    sheetOrders: OrderItem[],
+    sheetCapacity?: TeamCapacityStaffing[],
+    sheetNorms?: StageCycleNorm[]
+  ) => {
     if (sheetOrders && sheetOrders.length > 0) {
       setOrders(sheetOrders);
       const { updatedMaterials } = runMRPBalancing(sheetOrders, materials);
       setMaterials(updatedMaterials);
       const updatedCRP = runCRPBalancing(sheetOrders, workcenters);
       setWorkcenters(updatedCRP);
+    }
+    if (sheetCapacity && sheetCapacity.length > 0) {
+      setTeamCapacity(sheetCapacity);
+    }
+    if (sheetNorms && sheetNorms.length > 0) {
+      setCycleNorms(sheetNorms);
     }
   };
 
@@ -218,16 +246,62 @@ export default function App() {
     }
   };
 
-  // HANDLER: TPSX approves draft weekly schedule
-  const handleApproveWeeklyPlan = (approvedOrderIds: string[]) => {
+  // HANDLER: Accept incoming BTP buffer item into workshop production
+  const handleAcceptWaitingBTP = (bufferId: string) => {
+    setBtpWaitingBuffers((prev) =>
+      prev.map((b) => (b.id === bufferId ? { ...b, status: 'ACCEPTED_IN_PRODUCTION' as const } : b))
+    );
+  };
+
+  // HANDLER: Mark workshop step complete & transition BTP to Waiting buffer
+  const handleCompleteStationStep = (orderId: string, teamId: string) => {
+    handleMobileProgressStep(orderId, 10);
+    const matchedOrder = orders.find((o) => o.id === orderId);
+    const matchedTeam = teams.find((t) => t.id === teamId);
+    const teamNum = parseInt(teamId.replace('T', ''), 10);
+    const nextTeamId = teamNum < 17 ? `T${String(teamNum + 1).padStart(2, '0')}` : 'T17';
+    const nextTeam = teams.find((t) => t.id === nextTeamId);
+
+    const newBufferItem: BTPWaitingBufferItem = {
+      id: `WAIT-BTP-${Date.now()}`,
+      orderId,
+      orderCode: orderId,
+      customerName: matchedOrder?.customerName || 'Khách hàng DCAR',
+      conversionVersion: matchedOrder?.conversionVersion || 'Ford Thương Gia 11c',
+      btpCode: matchedTeam?.code ? `BTP-${matchedTeam.code}` : `BTP-${teamId}`,
+      btpName: matchedTeam?.btpName || `Bán thành phẩm ${matchedTeam?.name || teamId}`,
+      completedByTeamId: teamId,
+      completedByTeamName: matchedTeam?.name || teamId,
+      downstreamTeamId: nextTeamId,
+      downstreamTeamName: nextTeam?.name || 'Tổ tiếp theo',
+      quantity: 1,
+      completedTimestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      waitingHours: 0.1,
+      status: 'WAITING_TRANSFER',
+      notes: `${matchedTeam?.name} vừa đánh dấu hoàn thành, BTP đang chờ chuyển giao sang ${nextTeam?.name}.`,
+    };
+
+    setBtpWaitingBuffers((prev) => [newBufferItem, ...prev]);
+  };
+
+  // HANDLER: TPSX approves draft weekly schedule -> Sets planned start & completion dates, transitions to QUEUED_FOR_PRODUCTION
+  const handleApproveWeeklyPlan = (
+    approvedOrderIds: string[],
+    scheduleDateOverrides?: Record<string, { plannedStartDate: string; plannedEndDate: string }>
+  ) => {
     const updatedOrders = orders.map((o) => {
       if (approvedOrderIds.includes(o.id)) {
+        const overrides = scheduleDateOverrides?.[o.id];
+        const deploymentDate = overrides?.plannedStartDate || o.scheduledStartDate || '2026-11-09';
+        const completionDate = overrides?.plannedEndDate || o.scheduledEndDate || '2026-11-23';
         return {
           ...o,
-          status: 'APPROVED_LSX' as const,
+          status: 'QUEUED_FOR_PRODUCTION' as const,
+          scheduledStartDate: deploymentDate,
+          scheduledEndDate: completionDate,
           mrpReady: true,
           crpFeasible: true,
-          notes: `${o.notes} [TPSX ĐÃ DUYỆT]: Kế hoạch tuần chính thức ban hành xuống 17 xưởng.`,
+          notes: `${o.notes} [TPSX ĐÃ DUYỆT]: Kế hoạch tuần chính thức phê duyệt (Kế hoạch: ${deploymentDate} -> ${completionDate}). Chuyển trạng thái Chờ sản xuất.`,
         };
       }
       return o;
@@ -235,11 +309,18 @@ export default function App() {
 
     setOrders(updatedOrders);
 
+    // Sync with sheet if enabled
+    if (isAutoSyncEnabled()) {
+      updatedOrders
+        .filter((o) => approvedOrderIds.includes(o.id))
+        .forEach((o) => updateOrderInSheet(o).catch((e) => console.warn('[SheetSync] Update error:', e)));
+    }
+
     const approveAlert: SystemAlert = {
       id: `ALT-APP-${Date.now()}`,
       type: 'BOTTLENECK_LOAD',
       title: 'Trưởng Phòng SX đã phê duyệt Kế hoạch tuần',
-      description: `Đã ban hành chính thức ${approvedOrderIds.length} Lệnh sản xuất xuống các tổ nghiệp vụ.`,
+      description: `Đã duyệt ${approvedOrderIds.length} đơn hàng sang trạng thái Chờ Sản Xuất với ngày bắt đầu & hoàn thành được thiết lập, ban hành Lệnh sản xuất CM-PR01-F01.`,
       severity: 'INFO',
       timestamp: new Date().toLocaleString('vi-VN'),
       targetRefId: approvedOrderIds[0] || 'WEEKLY_PLAN',
@@ -409,6 +490,9 @@ export default function App() {
         onUpdateOrderProgress={handleMobileProgressStep}
         onReportDefect={handleReportDefect}
         onCloseMobileMode={() => setIsMobileMode(false)}
+        waitingBuffers={btpWaitingBuffers}
+        onAcceptWaitingBTP={handleAcceptWaitingBTP}
+        onCompleteStationStep={handleCompleteStationStep}
       />
     );
   }
@@ -559,6 +643,7 @@ export default function App() {
                 onNavigateTab={setActiveTab}
                 onSelectOrder={setSelectedOrderModal}
                 onNavigate={handleNavigate}
+                initialSubView={navTarget?.subView}
               />
             )}
 
@@ -595,6 +680,15 @@ export default function App() {
               />
             )}
 
+            {activeTab === 'gantt' && (
+              <ProductionGanttChart
+                orders={orders}
+                onSelectOrder={setSelectedOrderModal}
+                onNavigate={handleNavigate}
+                isReadOnly={isReadOnly}
+              />
+            )}
+
             {activeTab === 'matrix' && (
               <ProductionMatrix
                 orders={orders}
@@ -617,6 +711,8 @@ export default function App() {
                 onNavigate={handleNavigate}
                 initialOrderId={navTarget?.orderId}
                 isReadOnly={isReadOnly}
+                waitingBuffers={btpWaitingBuffers}
+                onAcceptWaitingBTP={handleAcceptWaitingBTP}
               />
             )}
 
@@ -672,6 +768,8 @@ export default function App() {
         onClose={() => setIsSheetSyncOpen(false)}
         orders={orders}
         dailySchedules={INITIAL_DAILY_SCHEDULES}
+        teamCapacity={teamCapacity}
+        cycleNorms={cycleNorms}
         onDataLoadedFromSheet={handleDataLoadedFromSheet}
         isReadOnly={isReadOnly}
       />

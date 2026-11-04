@@ -12,6 +12,8 @@ import {
 } from '../types/mes';
 import { generateOrderId } from '../services/mesEngine';
 import { STEP_ROUTINGS, CLUSTERS, INITIAL_CONTRACTS, createDefaultStepExecutions } from '../data/mockData';
+import { ProductionOrderPrintModal } from './ProductionOrderPrintModal';
+import { ProductionFlowDiagram } from './ProductionFlowDiagram';
 import {
   Plus,
   Search,
@@ -46,6 +48,7 @@ import {
   BadgeAlert,
   Filter,
   ArrowUpRight,
+  Workflow,
 } from 'lucide-react';
 
 interface OrderManagementProps {
@@ -57,7 +60,7 @@ interface OrderManagementProps {
   selectedOrderModal: OrderItem | null;
   onCloseOrderModal: () => void;
   onNavigate?: (target: NavigationTarget) => void;
-  initialMode?: 'LIST' | 'JOURNEY_TRACKING' | 'CONTRACTS';
+  initialMode?: 'FLOW_DIAGRAM' | 'JOURNEY_TRACKING' | 'LIST' | 'CONTRACTS';
   initialOrderId?: string;
   initialContractId?: string;
   isReadOnly?: boolean;
@@ -77,13 +80,14 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
   initialContractId,
   isReadOnly = false,
 }) => {
-  // Navigation Mode
-  const [managementMode, setManagementMode] = useState<'LIST' | 'JOURNEY_TRACKING' | 'CONTRACTS'>(
-    initialMode ?? 'JOURNEY_TRACKING'
+  // Navigation Mode (defaults to FLOW_DIAGRAM for intuitive shop-floor overview)
+  const [managementMode, setManagementMode] = useState<'FLOW_DIAGRAM' | 'JOURNEY_TRACKING' | 'LIST' | 'CONTRACTS'>(
+    initialMode ?? 'FLOW_DIAGRAM'
   );
   const [trackingOrderId, setTrackingOrderId] = useState<string>(
     initialOrderId ?? (orders[4]?.id || 'B2610002')
   );
+  const [printingOrder, setPrintingOrder] = useState<OrderItem | null>(null);
 
   // Contract Tracking State
   const [contracts, setContracts] = useState<ContractItem[]>(INITIAL_CONTRACTS);
@@ -132,6 +136,13 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
 
   // Form Fields
   const [orderType, setOrderType] = useState<OrderType>('G');
+  const [fulfillmentType, setFulfillmentType] = useState<'NEW_PRODUCTION' | 'PICK_FROM_BTP'>('NEW_PRODUCTION');
+  const [selectedBtpOrderNId, setSelectedBtpOrderNId] = useState<string>('');
+  const [btpStatusForN, setBtpStatusForN] = useState<'IN_INVENTORY' | 'ALLOCATED_TO_SALES'>('IN_INVENTORY');
+  const [allocatedToSalesOrderCode, setAllocatedToSalesOrderCode] = useState<string>('');
+  const [assigningBtpOrder, setAssigningBtpOrder] = useState<OrderItem | null>(null);
+  const [targetSalesOrderId, setTargetSalesOrderId] = useState<string>('');
+
   const [customerName, setCustomerName] = useState('');
   const [contractRef, setContractRef] = useState('');
   const [baseModel, setBaseModel] = useState('Ford Transit 18c Premium');
@@ -167,6 +178,16 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
     'Cổng sạc Type-C nhanh 45W từng ghế',
   ];
 
+  // Danh sách các đơn BTP (N) đang tồn kho sẵn sàng xuất
+  const availableNOrdersInInventory = useMemo(() => {
+    return orders.filter((o) => o.orderType === 'N' && (o.btpStatus === 'IN_INVENTORY' || !o.btpStatus));
+  }, [orders]);
+
+  // Danh sách các đơn bán (G) đang xử lý
+  const availableGOrdersForAllocation = useMemo(() => {
+    return orders.filter((o) => o.orderType === 'G' && o.status !== 'COMPLETED');
+  }, [orders]);
+
   // Dynamic preview of auto-generated ID
   const previewId = generateOrderId(orderType, orders, new Date(receivedDate));
 
@@ -183,44 +204,105 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
     if (!customerName.trim()) return;
 
     const newId = generateOrderId(orderType, orders, new Date(receivedDate));
+    
+    // Nếu đơn bán G chọn từ BTP (N)
+    const pickedN = orderType === 'G' && fulfillmentType === 'PICK_FROM_BTP'
+      ? orders.find((o) => o.id === selectedBtpOrderNId)
+      : undefined;
+
     const newOrder: OrderItem = {
       id: newId,
       orderType,
       customerName: customerName.trim(),
       contractRef: contractRef.trim() || `HĐ-${newId}`,
-      baseModel,
-      conversionVersion,
+      baseModel: pickedN ? pickedN.baseModel : baseModel,
+      conversionVersion: pickedN ? pickedN.conversionVersion : conversionVersion,
       seatCapacity,
       exteriorColor,
-      interiorColor,
+      interiorColor: pickedN ? pickedN.interiorColor : interiorColor,
       options: selectedOptions,
       receivedDate,
       dueDate,
       scheduledStartDate: receivedDate,
       scheduledEndDate: dueDate,
       status: 'INTAKE',
-      progress: 0,
-      currentDay: 1,
-      currentCluster: 1,
-      currentStepId: 'S01',
-      currentTeamId: 'T01',
-      currentStepName: 'Tiếp nhận mới, chờ cắt phôi CNC',
+      progress: pickedN ? 50 : 0,
+      currentDay: pickedN ? 7 : 1,
+      currentCluster: pickedN ? 3 : 1,
+      currentStepId: pickedN ? 'S14' : 'S01',
+      currentTeamId: pickedN ? 'T14' : 'T01',
+      currentStepName: pickedN ? 'Ghép BTP vào xe nền, hạ sàn & cách âm' : 'Tiếp nhận mới, chờ cắt phôi CNC',
       priorityLevel: 'P3_NORMAL',
       scheduleHealth: 'ON_TRACK',
       delayDays: 0,
-      standardLeadTimeDays: 14,
+      standardLeadTimeDays: pickedN ? 8 : 14,
       actualLeadTimeDays: 0,
-      mrpReady: false,
+      mrpReady: !!pickedN,
       crpFeasible: true,
-      notes,
+      // BTP Fields
+      fulfillmentType: orderType === 'G' ? fulfillmentType : undefined,
+      pickedFromBtpOrderId: pickedN ? pickedN.id : undefined,
+      pickedFromBtpOrderCode: pickedN ? `${pickedN.id} - ${pickedN.customerName}` : undefined,
+      btpStatus: orderType === 'N' ? btpStatusForN : undefined,
+      allocatedToSalesOrderId: orderType === 'N' && btpStatusForN === 'ALLOCATED_TO_SALES' ? allocatedToSalesOrderCode : undefined,
+      allocatedDate: orderType === 'N' && btpStatusForN === 'ALLOCATED_TO_SALES' ? receivedDate : undefined,
+      notes: notes + (pickedN ? ` [LẮP TỪ BTP]: Chọn từ đơn BTP tồn kho ${pickedN.id}. Tiết kiệm 6 ngày chuyền.` : ''),
     };
 
     onAddOrder(newOrder);
+
+    // Nếu chọn từ đơn N tồn kho, cập nhật đơn N thành Đã xuất cho đơn bán G này
+    if (pickedN) {
+      onUpdateOrder({
+        ...pickedN,
+        btpStatus: 'ALLOCATED_TO_SALES',
+        allocatedToSalesOrderId: newId,
+        allocatedToSalesOrderCode: `${newId} - ${customerName.trim()}`,
+        allocatedDate: receivedDate,
+        notes: `${pickedN.notes} [ĐÃ XUẤT CHO ĐƠN G]: Đã xuất cấp bán thành phẩm cho đơn ${newId} (${customerName.trim()}) vào ngày ${receivedDate}.`,
+      });
+    }
+
     setShowCreateModal(false);
     // Reset form
     setCustomerName('');
     setContractRef('');
     setNotes('');
+    setFulfillmentType('NEW_PRODUCTION');
+    setSelectedBtpOrderNId('');
+    setSuccessToast(`Đã tạo thành công đơn hàng ${newId} (${orderType === 'G' ? 'Đơn Bán' : orderType === 'N' ? 'Bán Thành Phẩm BTP' : orderType})!`);
+  };
+
+  // Handler: Xuất đơn BTP (N) cho một đơn hàng bán (G) cụ thể
+  const handleConfirmAllocateBtpToSales = () => {
+    if (!assigningBtpOrder || !targetSalesOrderId) return;
+    const targetG = orders.find((o) => o.id === targetSalesOrderId);
+    if (!targetG) return;
+
+    // Cập nhật đơn BTP (N)
+    const updatedN: OrderItem = {
+      ...assigningBtpOrder,
+      btpStatus: 'ALLOCATED_TO_SALES',
+      allocatedToSalesOrderId: targetG.id,
+      allocatedToSalesOrderCode: `${targetG.id} - ${targetG.customerName}`,
+      allocatedDate: new Date().toISOString().split('T')[0],
+      notes: `${assigningBtpOrder.notes} [ĐÃ XUẤT CHO ĐƠN G]: Đã xuất cho đơn ${targetG.id} (${targetG.customerName}) ngày ${new Date().toLocaleDateString('vi-VN')}.`,
+    };
+    onUpdateOrder(updatedN);
+
+    // Cập nhật đơn bán (G)
+    const updatedG: OrderItem = {
+      ...targetG,
+      fulfillmentType: 'PICK_FROM_BTP',
+      pickedFromBtpOrderId: assigningBtpOrder.id,
+      pickedFromBtpOrderCode: `${assigningBtpOrder.id} - ${assigningBtpOrder.customerName}`,
+      notes: `${targetG.notes} [BỔ SUNG BTP]: Nhận cụm BTP từ đơn kho ${assigningBtpOrder.id}.`,
+    };
+    onUpdateOrder(updatedG);
+
+    setAssigningBtpOrder(null);
+    setTargetSalesOrderId('');
+    setSuccessToast(`Đã xuất đơn BTP ${assigningBtpOrder.id} cho đơn bán ${targetG.id} thành công!`);
   };
 
   // Filtered orders
@@ -404,20 +486,23 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
       {/* Primary Subtabs Navigation */}
       <div className="flex items-center gap-2 border-b border-slate-200 overflow-x-auto">
         <button
-          onClick={() => setManagementMode('LIST')}
-          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
-            managementMode === 'LIST'
+          onClick={() => setManagementMode('FLOW_DIAGRAM')}
+          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+            managementMode === 'FLOW_DIAGRAM'
               ? 'border-slate-900 text-slate-900 font-bold'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
-          <Layers className="w-4 h-4 text-slate-500" />
-          <span>01. Danh Sách Lệnh Sản Xuất ({orders.length} Đơn)</span>
+          <Workflow className="w-4 h-4 text-amber-500" />
+          <span>01. Sơ Đồ Dòng Chảy Sản Xuất (17 Tổ / 4 Cụm)</span>
+          <span className="px-1.5 py-0.2 bg-amber-100 text-amber-900 text-[10px] font-mono font-bold rounded">
+            Mã Màu Lô Hẹn Giao
+          </span>
         </button>
 
         <button
           onClick={() => setManagementMode('JOURNEY_TRACKING')}
-          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
+          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             managementMode === 'JOURNEY_TRACKING'
               ? 'border-slate-900 text-slate-900 font-bold'
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -431,15 +516,27 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
         </button>
 
         <button
+          onClick={() => setManagementMode('LIST')}
+          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+            managementMode === 'LIST'
+              ? 'border-slate-900 text-slate-900 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Layers className="w-4 h-4 text-slate-500" />
+          <span>03. Danh Sách Lệnh Sản Xuất ({orders.length} Đơn)</span>
+        </button>
+
+        <button
           onClick={() => setManagementMode('CONTRACTS')}
-          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
+          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             managementMode === 'CONTRACTS'
               ? 'border-slate-900 text-slate-900 font-bold'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
           <Building2 className="w-4 h-4 text-indigo-600" />
-          <span>03. Xem Tiến Độ Theo Các Hợp Đồng ({contracts.length} HĐ)</span>
+          <span>04. Tiến Độ Hợp Đồng ({contracts.length} HĐ)</span>
           <span className="px-1.5 py-0.2 bg-indigo-100 text-indigo-900 text-[10px] font-mono font-bold rounded">
             Hợp Đồng Khách Hàng
           </span>
@@ -460,6 +557,18 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
             ✕
           </button>
         </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODE 0: SƠ ĐỒ DÒNG CHẢY SẢN XUẤT (17 TỔ / 4 CỤM)         */}
+      {/* ======================================================== */}
+      {managementMode === 'FLOW_DIAGRAM' && (
+        <ProductionFlowDiagram
+          orders={orders}
+          onSelectOrder={onSelectOrder}
+          onNavigate={onNavigate}
+          isReadOnly={isReadOnly}
+        />
       )}
 
       {/* ======================================================== */}
@@ -504,6 +613,16 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
                     }`}
                   >
                     G (Bán TM)
+                  </button>
+                  <button
+                    onClick={() => setFilterType('N')}
+                    className={`px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap ${
+                      filterType === 'N'
+                        ? 'bg-white text-emerald-800 shadow-sm font-bold'
+                        : 'text-emerald-700 hover:text-emerald-900'
+                    }`}
+                  >
+                    N (Bán Thành Phẩm BTP)
                   </button>
                   <button
                     onClick={() => setFilterType('T')}
@@ -581,14 +700,50 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
                           onClick={() => onSelectOrder(order)}
                         >
                           <td className="py-3 px-4 font-mono font-bold text-slate-900 group-hover:text-amber-600">
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               <span>{order.id}</span>
+                              <span
+                                className={`text-[9px] font-mono px-1 py-0.2 rounded font-bold ${
+                                  order.orderType === 'G'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : order.orderType === 'N'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-purple-100 text-purple-800'
+                                }`}
+                              >
+                                {order.orderType === 'G' ? 'ĐƠN G' : order.orderType === 'N' ? 'BTP (N)' : order.orderType}
+                              </span>
                               {order.priorityLevel === 'P1_CRITICAL' && (
                                 <span className="text-[9px] px-1 py-0.2 bg-rose-600 text-white font-bold rounded">
                                   P1
                                 </span>
                               )}
                             </div>
+
+                            {/* BTP specific badges */}
+                            {order.orderType === 'N' && (
+                              <div className="mt-1">
+                                {order.btpStatus === 'ALLOCATED_TO_SALES' ? (
+                                  <span className="inline-block text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-cyan-100 text-cyan-900 border border-cyan-300">
+                                    Đã xuất cho đơn G: {order.allocatedToSalesOrderId || ''}
+                                  </span>
+                                ) : (
+                                  <span className="inline-block text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-900 border border-emerald-300">
+                                    TỒN KHO BTP
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Sales order linked to BTP */}
+                            {order.orderType === 'G' && order.fulfillmentType === 'PICK_FROM_BTP' && (
+                              <div className="mt-1">
+                                <span className="inline-block text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-900 border border-indigo-300">
+                                  Ghép BTP: {order.pickedFromBtpOrderId || ''}
+                                </span>
+                              </div>
+                            )}
+
                             {order.batchGroupId && (
                               <span className="block text-[10px] text-slate-400 font-normal">
                                 Lô {order.batchGroupId.slice(-8)}
@@ -689,6 +844,29 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
                                 className="px-2 py-1 text-[11px] font-semibold text-slate-700 bg-white border border-slate-200 rounded hover:bg-slate-100 transition-colors whitespace-nowrap"
                               >
                                 Xem LSX
+                              </button>
+                              {order.orderType === 'N' && (order.btpStatus === 'IN_INVENTORY' || !order.btpStatus) && (
+                                <button
+                                  onClick={() => {
+                                    setAssigningBtpOrder(order);
+                                    if (availableGOrdersForAllocation.length > 0) {
+                                      setTargetSalesOrderId(availableGOrdersForAllocation[0].id);
+                                    }
+                                  }}
+                                  className="px-2 py-1 text-[11px] font-bold text-emerald-900 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded whitespace-nowrap transition-colors flex items-center gap-1 cursor-pointer"
+                                  title="Xuất bán thành phẩm này gán cho đơn hàng bán (G)"
+                                >
+                                  <Boxes className="w-3 h-3 text-emerald-700" />
+                                  <span>Xuất Cho G</span>
+                                </button>
+                              )}
+                              <button
+                                onClick={() => setPrintingOrder(order)}
+                                className="px-2 py-1 text-[11px] font-semibold text-slate-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded whitespace-nowrap transition-colors flex items-center gap-1 cursor-pointer"
+                                title="In Lệnh Sản Xuất theo biểu mẫu chuẩn ISO CM-PR01-F01"
+                              >
+                                <Printer className="w-3 h-3 text-slate-800" />
+                                <span>In LSX</span>
                               </button>
                             </div>
                           </td>
@@ -847,12 +1025,22 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
                     Kho HHCITY0B
                   </span>
                 </div>
-                <button
-                  onClick={() => onSelectOrder(currentTrackingOrder)}
-                  className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded"
-                >
-                  Xem Spec Đơn
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setPrintingOrder(currentTrackingOrder)}
+                    className="px-2.5 py-1 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded flex items-center gap-1 shadow-2xs cursor-pointer"
+                    title="In Lệnh Sản Xuất theo biểu mẫu chuẩn ISO CM-PR01-F01"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-amber-400" />
+                    <span>In Lệnh SX</span>
+                  </button>
+                  <button
+                    onClick={() => onSelectOrder(currentTrackingOrder)}
+                    className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded cursor-pointer"
+                  >
+                    Xem Spec Đơn
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1451,7 +1639,7 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
                   <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                     <span>Chọn Loại Đơn Hàng Sản Xuất *</span>
                     <span className="text-[11px] font-normal text-slate-500">
-                      (Quyết định tiền tố mã LSX: G / T / B)
+                      (Quyết định tiền tố mã LSX: G / N / T / B)
                     </span>
                   </label>
                   <span className="text-[11px] font-mono text-slate-500">
@@ -1459,8 +1647,8 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  {/* Card 1: Đơn bán */}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+                  {/* Card 1: Đơn bán G */}
                   <div
                     onClick={() => setOrderType('G')}
                     className={`p-3 rounded-lg border cursor-pointer transition-all ${
@@ -1478,7 +1666,7 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
                       )}
                     </div>
                     <h4 className="font-bold text-xs text-slate-900 mt-1.5">
-                      Đơn Bán (Commercial)
+                      Đơn Bán (G)
                     </h4>
                     <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
                       Hợp đồng bán xe mới cho khách cá nhân, doanh nghiệp vận tải
@@ -1488,7 +1676,35 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
                     </div>
                   </div>
 
-                  {/* Card 2: Đơn trưng bày */}
+                  {/* Card 2: Đơn bán thành phẩm N */}
+                  <div
+                    onClick={() => setOrderType('N')}
+                    className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                      orderType === 'N'
+                        ? 'bg-emerald-50/80 border-emerald-500 ring-2 ring-emerald-500/30 shadow-xs'
+                        : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-bold px-1.5 py-0.5 rounded bg-emerald-900 text-emerald-300">
+                        TIỀN TỐ N
+                      </span>
+                      {orderType === 'N' && (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      )}
+                    </div>
+                    <h4 className="font-bold text-xs text-slate-900 mt-1.5">
+                      Bán Thành Phẩm (N)
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                      Đơn BTP trữ kho đệm (khung ghế, vách, dây điện) sẵn sàng xuất
+                    </p>
+                    <div className="mt-2 pt-2 border-t border-slate-200/60 font-mono text-[10px] text-slate-600">
+                      Mã mẫu: <strong className="text-emerald-700">N2611...</strong>
+                    </div>
+                  </div>
+
+                  {/* Card 3: Đơn trưng bày T */}
                   <div
                     onClick={() => setOrderType('T')}
                     className={`p-3 rounded-lg border cursor-pointer transition-all ${
@@ -1506,7 +1722,7 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
                       )}
                     </div>
                     <h4 className="font-bold text-xs text-slate-900 mt-1.5">
-                      Đơn Trưng Bày (Showroom)
+                      Đơn Trưng Bày (T)
                     </h4>
                     <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
                       Xe demo, triển lãm sự kiện, giao đại lý giới thiệu sản phẩm
@@ -1516,7 +1732,7 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
                     </div>
                   </div>
 
-                  {/* Card 3: Đơn bảo hành */}
+                  {/* Card 4: Đơn bảo hành B */}
                   <div
                     onClick={() => setOrderType('B')}
                     className={`p-3 rounded-lg border cursor-pointer transition-all ${
@@ -1534,7 +1750,7 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
                       )}
                     </div>
                     <h4 className="font-bold text-xs text-slate-900 mt-1.5">
-                      Đơn Bảo Hành (Rework)
+                      Đơn Bảo Hành (B)
                     </h4>
                     <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
                       Bảo hành chuyên sâu, sửa chữa lỗi kỹ thuật, nâng cấp nội thất
@@ -1545,6 +1761,167 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
                   </div>
                 </div>
 
+                {/* Đơn hàng bán (G): Cho phép Sản xuất mới HOẶC Chọn từ BTP (N) */}
+                {orderType === 'G' && (
+                  <div className="p-3.5 bg-amber-50/90 border border-amber-300 rounded-lg space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4 text-amber-600" />
+                        <span>Hình Thức Triển Khai Cho Đơn Bán (G) *</span>
+                      </label>
+                      <span className="text-[10px] font-mono text-amber-900 bg-amber-100 px-2 py-0.5 rounded font-bold border border-amber-300">
+                        {availableNOrdersInInventory.length} Đơn BTP Có Sẵn Trong Kho
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div
+                        onClick={() => {
+                          setFulfillmentType('NEW_PRODUCTION');
+                          setSelectedBtpOrderNId('');
+                        }}
+                        className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                          fulfillmentType === 'NEW_PRODUCTION'
+                            ? 'bg-white border-amber-500 ring-2 ring-amber-500/30 shadow-xs'
+                            : 'bg-white/60 border-slate-200 hover:bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-slate-900">1. Sản Xuất Mới Toàn Bộ</span>
+                          {fulfillmentType === 'NEW_PRODUCTION' && <CheckCircle2 className="w-4 h-4 text-amber-600" />}
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                          Chạy trọn vẹn 14 ngày chuyền từ Tổ 01 (Cắt phôi) đến Tổ 17 (KCS bàn giao).
+                        </p>
+                        <span className="text-[10px] font-mono text-slate-600 font-bold block mt-2">
+                          Thời lượng chuẩn: 14 ngày chuyền
+                        </span>
+                      </div>
+
+                      <div
+                        onClick={() => {
+                          setFulfillmentType('PICK_FROM_BTP');
+                          if (availableNOrdersInInventory.length > 0 && !selectedBtpOrderNId) {
+                            setSelectedBtpOrderNId(availableNOrdersInInventory[0].id);
+                          }
+                        }}
+                        className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                          fulfillmentType === 'PICK_FROM_BTP'
+                            ? 'bg-white border-indigo-500 ring-2 ring-indigo-500/30 shadow-xs'
+                            : 'bg-white/60 border-slate-200 hover:bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-indigo-950">2. Chọn Từ Đơn Bán Thành Phẩm (N)</span>
+                          {fulfillmentType === 'PICK_FROM_BTP' && <CheckCircle2 className="w-4 h-4 text-indigo-600" />}
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                          Tận dụng khung ghế, vách may sẵn từ đơn BTP (N) đang tồn kho.
+                        </p>
+                        <span className="text-[10px] font-mono text-emerald-700 font-bold block mt-2">
+                          Rút ngắn tiến độ: Chỉ còn 6 - 8 ngày!
+                        </span>
+                      </div>
+                    </div>
+
+                    {fulfillmentType === 'PICK_FROM_BTP' && (
+                      <div className="pt-2 border-t border-amber-200 space-y-2">
+                        <label className="text-xs font-bold text-indigo-950 block">
+                          Chọn Đơn Hàng Bán Thành Phẩm (N) Tồn Kho Cần Ghép:
+                        </label>
+                        {availableNOrdersInInventory.length === 0 ? (
+                          <div className="p-2.5 bg-rose-50 border border-rose-200 rounded text-xs text-rose-800">
+                            Hiện không có đơn hàng (N) nào đang ở trạng thái Tồn Kho. Vui lòng chọn "Sản xuất mới" hoặc tạo thêm đơn (N).
+                          </div>
+                        ) : (
+                          <select
+                            value={selectedBtpOrderNId}
+                            onChange={(e) => setSelectedBtpOrderNId(e.target.value)}
+                            className="w-full px-3 py-2 bg-white border border-indigo-300 rounded text-xs font-mono font-semibold text-indigo-950 focus:ring-2 focus:ring-indigo-500"
+                          >
+                            {availableNOrdersInInventory.map((nOrd) => (
+                              <option key={nOrd.id} value={nOrd.id}>
+                                {nOrd.id} · {nOrd.customerName} · {nOrd.conversionVersion} (Tiến độ {nOrd.progress}%, Trạm {nOrd.currentTeamId})
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Nếu là đơn hàng bán thành phẩm (N), cho phép chọn trạng thái Tồn Kho hay Đã Xuất */}
+                {orderType === 'N' && (
+                  <div className="p-3.5 bg-emerald-50/90 border border-emerald-300 rounded-lg space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                        <Boxes className="w-4 h-4 text-emerald-600" />
+                        <span>Trạng Thái Đơn Hàng Bán Thành Phẩm (N) *</span>
+                      </label>
+                      <span className="text-[10px] font-mono text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded font-bold">
+                        BTP ĐỆM KHO
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div
+                        onClick={() => setBtpStatusForN('IN_INVENTORY')}
+                        className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                          btpStatusForN === 'IN_INVENTORY'
+                            ? 'bg-white border-emerald-500 ring-2 ring-emerald-500/30 shadow-xs'
+                            : 'bg-white/60 border-slate-200 hover:bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-emerald-950">Tồn Kho (Sẵn Sàng Xuất)</span>
+                          {btpStatusForN === 'IN_INVENTORY' && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                          Trữ kho đệm bán thành phẩm chờ các đơn hàng bán (G) tiếp nhận.
+                        </p>
+                      </div>
+
+                      <div
+                        onClick={() => setBtpStatusForN('ALLOCATED_TO_SALES')}
+                        className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                          btpStatusForN === 'ALLOCATED_TO_SALES'
+                            ? 'bg-white border-cyan-500 ring-2 ring-cyan-500/30 shadow-xs'
+                            : 'bg-white/60 border-slate-200 hover:bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-cyan-950">Đã Xuất Cho Đơn Bán (G)</span>
+                          {btpStatusForN === 'ALLOCATED_TO_SALES' && <CheckCircle2 className="w-4 h-4 text-cyan-600" />}
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                          Đã điều chuyển / gán BTP này cho một Lệnh sản xuất thương mại (G).
+                        </p>
+                      </div>
+                    </div>
+
+                    {btpStatusForN === 'ALLOCATED_TO_SALES' && (
+                      <div className="pt-2 border-t border-emerald-200 space-y-1.5">
+                        <label className="text-xs font-semibold text-cyan-950 block">
+                          Chọn Đơn Hàng Bán (G) Được Xuất Tới:
+                        </label>
+                        <select
+                          value={allocatedToSalesOrderCode}
+                          onChange={(e) => setAllocatedToSalesOrderCode(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-white border border-cyan-300 rounded text-xs font-mono font-semibold text-slate-900"
+                        >
+                          <option value="">-- Chọn đơn hàng G nhận BTP --</option>
+                          {availableGOrdersForAllocation.map((gOrd) => (
+                            <option key={gOrd.id} value={gOrd.id}>
+                              {gOrd.id} · {gOrd.customerName} ({gOrd.conversionVersion})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Banner kết quả mã LSX điều chỉnh theo loại đơn */}
                 <div className="p-3 bg-slate-900 text-white rounded-lg flex items-center justify-between gap-3 shadow-2xs">
                   <div className="flex items-center gap-2.5">
@@ -1553,7 +1930,16 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
                     </div>
                     <div>
                       <span className="text-[11px] text-slate-300 block">
-                        Đang chọn: <strong>{orderType === 'G' ? 'Đơn Bán' : orderType === 'T' ? 'Đơn Trưng Bày' : 'Đơn Bảo Hành'}</strong>
+                        Đang chọn:{' '}
+                        <strong>
+                          {orderType === 'G'
+                            ? 'Đơn Bán (G)'
+                            : orderType === 'N'
+                            ? 'Bán Thành Phẩm (N)'
+                            : orderType === 'T'
+                            ? 'Đơn Trưng Bày (T)'
+                            : 'Đơn Bảo Hành (B)'}
+                        </strong>
                       </span>
                       <span className="text-xs text-slate-400">
                         Mã LSX tự động gán vào hệ thống:
@@ -1806,21 +2192,31 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
               </div>
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-              <button
-                onClick={() => {
-                  handleSwitchToTracking(selectedOrderModal.id);
-                  onCloseOrderModal();
-                }}
-                className="px-3.5 py-2 text-xs font-bold text-amber-950 bg-amber-400 hover:bg-amber-500 rounded transition-colors flex items-center gap-1.5"
-              >
-                <Navigation className="w-3.5 h-3.5" />
-                <span>Xem Bản Đồ Tracking 17 Công Đoạn</span>
-              </button>
+            <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    handleSwitchToTracking(selectedOrderModal.id);
+                    onCloseOrderModal();
+                  }}
+                  className="px-3.5 py-2 text-xs font-bold text-amber-950 bg-amber-400 hover:bg-amber-500 rounded transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <Navigation className="w-3.5 h-3.5" />
+                  <span>Xem Bản Đồ Tracking 17 Công Đoạn</span>
+                </button>
+
+                <button
+                  onClick={() => setPrintingOrder(selectedOrderModal)}
+                  className="px-3.5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                >
+                  <Printer className="w-3.5 h-3.5 text-amber-400" />
+                  <span>In Lệnh SX (CM-PR01-F01)</span>
+                </button>
+              </div>
 
               <button
                 onClick={onCloseOrderModal}
-                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded"
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded cursor-pointer"
               >
                 Đóng
               </button>
@@ -1984,6 +2380,85 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
           </div>
         </div>
       )}
+
+      {/* MODAL XUẤT ĐƠN HÀNG BTP (N) CHO ĐƠN HÀNG BÁN (G) */}
+      {assigningBtpOrder && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Boxes className="w-5 h-5 text-emerald-600" />
+                <h3 className="font-bold text-base text-slate-900">
+                  Xuất Đơn BTP ({assigningBtpOrder.id}) Cho Đơn Hàng Bán (G)
+                </h3>
+              </div>
+              <button
+                onClick={() => setAssigningBtpOrder(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-md"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-950 space-y-1">
+              <p>
+                <strong>Đơn BTP nguồn:</strong> <span className="font-mono font-bold">{assigningBtpOrder.id}</span> · {assigningBtpOrder.customerName}
+              </p>
+              <p>
+                <strong>Dòng xe &amp; Phiên bản:</strong> {assigningBtpOrder.conversionVersion} (Tiến độ {assigningBtpOrder.progress}%)
+              </p>
+              <p className="text-[11px] text-emerald-800 pt-1 border-t border-emerald-200">
+                Khi xuất, đơn hàng (N) sẽ chuyển trạng thái sang <strong>Đã xuất cho đơn bán (G)</strong>, và đơn bán (G) được nhận BTP để lắp ráp ngay!
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-800 block">
+                Chọn Đơn Hàng Bán Thương Mại (G) Tiếp Nhận:
+              </label>
+              {availableGOrdersForAllocation.length === 0 ? (
+                <p className="text-xs text-rose-600 italic">Hiện không có đơn bán (G) nào đang cần nhận BTP.</p>
+              ) : (
+                <select
+                  value={targetSalesOrderId}
+                  onChange={(e) => setTargetSalesOrderId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded text-xs font-mono font-semibold text-slate-900 focus:bg-white focus:ring-2 focus:ring-amber-500"
+                >
+                  {availableGOrdersForAllocation.map((gOrd) => (
+                    <option key={gOrd.id} value={gOrd.id}>
+                      {gOrd.id} · {gOrd.customerName} · {gOrd.conversionVersion} (Hạn giao: {gOrd.dueDate})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setAssigningBtpOrder(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Hủy Bỏ
+              </button>
+              <button
+                onClick={handleConfirmAllocateBtpToSales}
+                disabled={!targetSalesOrderId}
+                className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Xác Nhận Xuất Cấp Cho Đơn G</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL IN LỆNH SẢN XUẤT CHUẨN ISO CM-PR01-F01 */}
+      <ProductionOrderPrintModal
+        order={printingOrder}
+        isOpen={!!printingOrder}
+        onClose={() => setPrintingOrder(null)}
+      />
     </div>
   );
 };

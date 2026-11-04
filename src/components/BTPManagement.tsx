@@ -5,6 +5,7 @@ import {
   Role,
   OrderBTPSynchronization,
   NavigationTarget,
+  BTPWaitingBufferItem,
 } from '../types/mes';
 import {
   calculateBTPClearanceTime,
@@ -12,6 +13,7 @@ import {
 } from '../services/mesEngine';
 import {
   INITIAL_ORDER_BTP_SYNCS,
+  INITIAL_BTP_WAITING_BUFFERS,
 } from '../data/mockData';
 import {
   Layers,
@@ -32,6 +34,9 @@ import {
   Send,
   Sparkles,
   ArrowUpRight,
+  Timer,
+  Play,
+  FileCheck,
 } from 'lucide-react';
 
 interface BTPManagementProps {
@@ -43,6 +48,8 @@ interface BTPManagementProps {
   onNavigate?: (target: NavigationTarget) => void;
   initialOrderId?: string;
   isReadOnly?: boolean;
+  waitingBuffers?: BTPWaitingBufferItem[];
+  onAcceptWaitingBTP?: (bufferId: string) => void;
 }
 
 export const BTPManagement: React.FC<BTPManagementProps> = ({
@@ -54,9 +61,17 @@ export const BTPManagement: React.FC<BTPManagementProps> = ({
   onNavigate,
   initialOrderId,
   isReadOnly = false,
+  waitingBuffers: initialWaitingBuffers,
+  onAcceptWaitingBTP,
 }) => {
   // Subtab navigation
-  const [activeSubtab, setActiveSubtab] = useState<'CLEARANCE_WIP' | 'ORDER_BTP_SYNC'>('ORDER_BTP_SYNC');
+  const [activeSubtab, setActiveSubtab] = useState<'CLEARANCE_WIP' | 'ORDER_BTP_SYNC' | 'WAITING_BUFFER'>('ORDER_BTP_SYNC');
+  const [buffersList, setBuffersList] = useState<BTPWaitingBufferItem[]>(
+    initialWaitingBuffers && initialWaitingBuffers.length > 0
+      ? initialWaitingBuffers
+      : INITIAL_BTP_WAITING_BUFFERS
+  );
+  const [bufferFilter, setBufferFilter] = useState<'ALL' | 'WAITING' | 'ACCEPTED'>('ALL');
 
   // Selected team for the Smart Calculation Widget
   const [selectedTeamId, setSelectedTeamId] = useState<string>('T04'); // Tổ Mộc (Bottleneck)
@@ -236,6 +251,21 @@ export const BTPManagement: React.FC<BTPManagementProps> = ({
         >
           <Layers className="w-4 h-4 text-slate-500" />
           <span>02. Tồn Kho BTP 17 Tổ &amp; Giải Tỏa Nút Thắt (Bottlenecks)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSubtab('WAITING_BUFFER')}
+          className={`py-3 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
+            activeSubtab === 'WAITING_BUFFER'
+              ? 'border-slate-900 text-slate-900 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Timer className="w-4 h-4 text-indigo-500" />
+          <span>03. Hàng Chờ Công Đoạn Sau (Waiting Time Buffer)</span>
+          <span className="px-1.5 py-0.2 bg-indigo-100 text-indigo-900 rounded font-mono text-[10px] font-bold">
+            {buffersList.filter((b) => b.status === 'WAITING_TRANSFER').length} Đang Chờ
+          </span>
         </button>
       </div>
 
@@ -873,6 +903,269 @@ export const BTPManagement: React.FC<BTPManagementProps> = ({
           </div>
         </div>
       )}
+
+      {/* ======================================================== */}
+      {/* SUBTAB 3: BTP WAITING TIME BUFFER (HÀNG CHỜ CÔNG ĐOẠN)   */}
+      {/* ======================================================== */}
+      {activeSubtab === 'WAITING_BUFFER' && (
+        <div className="space-y-6">
+          {/* Buffer Lean Principle & Architecture Card */}
+          <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-xl p-5 border border-slate-800 shadow-md space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-indigo-500/20 text-indigo-300 rounded-lg">
+                  <Timer className="w-5 h-5 text-indigo-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    Kiểm Soát Tồn Bán Thành Phẩm &amp; Thời Gian Chờ (Inter-station Waiting Time)
+                  </h3>
+                  <span className="text-xs text-indigo-200 font-mono">
+                    DCAR LEAN FLOW · QUY CHUẨN ĐỒNG BỘ 17 TỔ SẢN XUẤT
+                  </span>
+                </div>
+              </div>
+
+              <span className="px-3 py-1 bg-amber-400/20 border border-amber-400/50 text-amber-300 rounded-full text-xs font-mono font-bold self-start sm:self-center">
+                Nguyên Lý Chống Lãng Phí (Muda Waiting)
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Theo logic sản xuất tinh gọn: Ngay khi tổ trước đánh dấu <strong>Hoàn thành</strong>, chi tiết bán thành phẩm sẽ ngay lập tức chuyển sang trạng thái <strong>CHỜ (WAITING_TRANSFER)</strong> và bắt đầu đếm thời gian thực tế nằm chờ. Khi tổ công đoạn sau tiếp nhận và bấm <strong>Bắt đầu sản xuất</strong>, thời gian chờ sẽ được chốt để đánh giá hiệu suất dòng chảy trạm.
+            </p>
+          </div>
+
+          {/* Buffer KPI Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-2xs space-y-1">
+              <span className="text-xs text-slate-500 flex items-center gap-1.5">
+                <Boxes className="w-3.5 h-3.5 text-indigo-600" />
+                BTP Đang Nằm Ở Hàng Chờ
+              </span>
+              <div className="flex items-baseline justify-between">
+                <span className="text-2xl font-bold font-mono text-indigo-700">
+                  {buffersList.filter((b) => b.status === 'WAITING_TRANSFER').length}
+                </span>
+                <span className="text-xs text-slate-400">cụm chi tiết</span>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-2xs space-y-1">
+              <span className="text-xs text-slate-500 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-amber-500" />
+                Thời Gian Chờ Trung Bình
+              </span>
+              <div className="flex items-baseline justify-between">
+                <span className="text-2xl font-bold font-mono text-slate-900">
+                  3.8 <span className="text-sm font-normal text-slate-500">giờ</span>
+                </span>
+                <span className="text-xs font-mono text-emerald-600 font-bold">
+                  Định mức: &lt; 4.0h
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-2xs space-y-1">
+              <span className="text-xs text-slate-500 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-500" />
+                Cảnh Báo Chờ Quá 6 Giờ
+              </span>
+              <div className="flex items-baseline justify-between">
+                <span className="text-2xl font-bold font-mono text-rose-600">
+                  {buffersList.filter((b) => b.status === 'WAITING_TRANSFER' && b.waitingHours > 6.0).length}
+                </span>
+                <span className="text-xs text-rose-600 font-mono">Ưu tiên giải tỏa</span>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-2xs space-y-1">
+              <span className="text-xs text-slate-500 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                Đã Tiếp Nhận Sản Xuất
+              </span>
+              <div className="flex items-baseline justify-between">
+                <span className="text-2xl font-bold font-mono text-emerald-700">
+                  {buffersList.filter((b) => b.status === 'ACCEPTED_IN_PRODUCTION').length}
+                </span>
+                <span className="text-xs text-slate-400">chi tiết</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Filter Toolbar */}
+          <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-slate-600">Bộ lọc trạng thái:</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setBufferFilter('ALL')}
+                  className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
+                    bufferFilter === 'ALL'
+                      ? 'bg-slate-900 text-white font-bold'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  Tất Cả ({buffersList.length})
+                </button>
+                <button
+                  onClick={() => setBufferFilter('WAITING')}
+                  className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
+                    bufferFilter === 'WAITING'
+                      ? 'bg-amber-500 text-slate-950 font-bold'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  Đang Chờ Chuyển Giao ({buffersList.filter((b) => b.status === 'WAITING_TRANSFER').length})
+                </button>
+                <button
+                  onClick={() => setBufferFilter('ACCEPTED')}
+                  className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${
+                    bufferFilter === 'ACCEPTED'
+                      ? 'bg-emerald-600 text-white font-bold'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  Đã Tiếp Nhận ({buffersList.filter((b) => b.status === 'ACCEPTED_IN_PRODUCTION').length})
+                </button>
+              </div>
+            </div>
+
+            <span className="text-xs text-slate-500 font-mono">
+              Cập nhật đồng bộ real-time với Mobile Xưởng
+            </span>
+          </div>
+
+          {/* Table of Waiting Buffer Items */}
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 font-semibold text-slate-700">
+                    <th className="py-3 px-3">Mã Lệnh SX &amp; Khách Hàng</th>
+                    <th className="py-3 px-3">Bán Thành Phẩm Bàn Giao</th>
+                    <th className="py-3 px-3">Tổ Hoàn Thành (Upstream)</th>
+                    <th className="py-3 px-3">Tổ Tiếp Nhận (Downstream)</th>
+                    <th className="py-3 px-3 text-center">Bắt Đầu Chờ</th>
+                    <th className="py-3 px-3 text-center">Thời Gian Chờ</th>
+                    <th className="py-3 px-3 text-center">Trạng Thái</th>
+                    <th className="py-3 px-3 text-center">Thao Tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {buffersList
+                    .filter((item) => {
+                      if (bufferFilter === 'WAITING') return item.status === 'WAITING_TRANSFER';
+                      if (bufferFilter === 'ACCEPTED') return item.status === 'ACCEPTED_IN_PRODUCTION';
+                      return true;
+                    })
+                    .map((item) => {
+                      const isWaiting = item.status === 'WAITING_TRANSFER';
+                      const isCriticalDelay = isWaiting && item.waitingHours > 6.0;
+                      const isWarning = isWaiting && item.waitingHours > 3.0 && !isCriticalDelay;
+
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50">
+                          <td className="py-3 px-3">
+                            <span className="font-mono font-bold text-slate-900 block">
+                              {item.orderCode}
+                            </span>
+                            <span className="text-[11px] text-slate-600 block truncate max-w-[160px]">
+                              {item.customerName}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3">
+                            <span className="font-semibold text-slate-900 block">
+                              {item.btpName}
+                            </span>
+                            <span className="font-mono text-[10px] text-slate-400 block">
+                              {item.btpCode} · Qty: {item.quantity}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3">
+                            <span className="font-medium text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded text-[11px] block">
+                              {item.completedByTeamName}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3">
+                            <span className="font-medium text-indigo-800 bg-indigo-50 px-2 py-0.5 rounded text-[11px] block">
+                              {item.downstreamTeamName}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3 text-center font-mono text-slate-600">
+                            {item.completedTimestamp}
+                          </td>
+
+                          <td className="py-3 px-3 text-center">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-mono font-bold text-xs ${
+                                isCriticalDelay
+                                  ? 'bg-rose-100 text-rose-800 border border-rose-300 animate-pulse'
+                                  : isWarning
+                                  ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                  : isWaiting
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              <Timer className="w-3 h-3" />
+                              <span>{item.waitingHours} giờ</span>
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3 text-center">
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                                isWaiting
+                                  ? 'bg-amber-100 text-amber-900'
+                                  : 'bg-emerald-100 text-emerald-800'
+                              }`}
+                            >
+                              {isWaiting ? 'Chờ Công Đoạn Sau' : 'Đã Vào Sản Xuất'}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3 text-center">
+                            {isWaiting ? (
+                              <button
+                                disabled={isReadOnly}
+                                onClick={() => {
+                                  setBuffersList((prev) =>
+                                    prev.map((b) =>
+                                      b.id === item.id
+                                        ? { ...b, status: 'ACCEPTED_IN_PRODUCTION' as const }
+                                        : b
+                                    )
+                                  );
+                                  if (onAcceptWaitingBTP) onAcceptWaitingBTP(item.id);
+                                  setAlertSuccessMsg(`Đã tiếp nhận BTP ${item.btpName} vào sản xuất thành công!`);
+                                }}
+                                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded text-xs flex items-center justify-center gap-1 shadow-2xs cursor-pointer disabled:opacity-50"
+                              >
+                                <Play className="w-3 h-3 fill-current" />
+                                <span>Tiếp Nhận Vào SX</span>
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-emerald-700 font-medium flex items-center justify-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Đang Gia Công</span>
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

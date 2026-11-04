@@ -22,6 +22,10 @@ import {
   Sparkles,
   Link,
   Table,
+  FileDown,
+  FileUp,
+  Users,
+  Clock,
 } from 'lucide-react';
 import {
   DEFAULT_SHEET_API_URL,
@@ -33,15 +37,34 @@ import {
   initGoogleSheetStructure,
   isAutoSyncEnabled,
   setAutoSyncEnabled,
+  downloadCsvFile,
+  generateOrdersCsv,
+  generateTeamCapacityCsv,
+  generateStageCycleNormsCsv,
 } from '../services/googleSheetService';
-import { OrderItem, DailyScheduleItem } from '../types/mes';
+import {
+  OrderItem,
+  DailyScheduleItem,
+  TeamCapacityStaffing,
+  StageCycleNorm,
+} from '../types/mes';
+import {
+  INITIAL_TEAM_CAPACITY_STAFFING,
+  INITIAL_STAGE_CYCLE_NORMS,
+} from '../data/mockData';
 
 interface GoogleSheetSyncModalProps {
   isOpen: boolean;
   onClose: () => void;
   orders: OrderItem[];
   dailySchedules?: DailyScheduleItem[];
-  onDataLoadedFromSheet: (sheetOrders: OrderItem[]) => void;
+  teamCapacity?: TeamCapacityStaffing[];
+  cycleNorms?: StageCycleNorm[];
+  onDataLoadedFromSheet: (
+    sheetOrders: OrderItem[],
+    sheetCapacity?: TeamCapacityStaffing[],
+    sheetNorms?: StageCycleNorm[]
+  ) => void;
   isReadOnly?: boolean;
 }
 
@@ -50,11 +73,13 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
   onClose,
   orders,
   dailySchedules,
+  teamCapacity = INITIAL_TEAM_CAPACITY_STAFFING,
+  cycleNorms = INITIAL_STAGE_CYCLE_NORMS,
   onDataLoadedFromSheet,
   isReadOnly = false,
 }) => {
   const [apiUrl, setApiUrl] = useState<string>(getStoredSheetApiUrl());
-  const [activeTab, setActiveTab] = useState<'STATUS' | 'CODE' | 'SCHEMA'>('STATUS');
+  const [activeTab, setActiveTab] = useState<'STATUS' | 'TEMPLATES' | 'CODE' | 'SCHEMA'>('STATUS');
   const [isConnected, setIsConnected] = useState<boolean | null>(null);
   const [isPinging, setIsPinging] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
@@ -62,6 +87,7 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
   const [autoSync, setAutoSync] = useState<boolean>(isAutoSyncEnabled());
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [importNotification, setImportNotification] = useState<string | null>(null);
 
   // Ping endpoint on open
   useEffect(() => {
@@ -81,7 +107,7 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
       setStatusMessage(res.message);
     } catch (err: any) {
       setIsConnected(false);
-      setStatusMessage(err.message || 'Lỗi kết nối.');
+      setStatusMessage(err.message || 'Lỗi kết nối Web App.');
     } finally {
       setIsPinging(false);
     }
@@ -103,27 +129,29 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
     setAutoSyncEnabled(enabled);
   };
 
-  // Đọc dữ liệu từ Google Sheet (Pull)
+  // Đọc dữ liệu từ Google Sheet (Pull) - Đã sửa lỗi: Nhận cả 3 bảng Orders, Năng lực tổ, Định mức công đoạn
   const handlePullFromSheet = async () => {
     setIsSyncing(true);
-    setStatusMessage('Đang đọc dữ liệu từ Google Sheet...');
+    setStatusMessage('Đang kéo dữ liệu mới nhất từ Google Sheet về MES...');
     try {
       const res = await fetchSheetData();
       if (res.success && res.orders && res.orders.length > 0) {
-        onDataLoadedFromSheet(res.orders);
+        onDataLoadedFromSheet(res.orders, res.teamCapacity, res.cycleNorms);
         setIsConnected(true);
         setStatusMessage(
-          `Đã tải thành công ${res.orders.length} đơn hàng từ Google Sheet về hệ thống MES!`
+          `Đã đồng bộ thành công: ${res.orders.length} đơn hàng, ${
+            res.teamCapacity?.length || 17
+          } tổ năng lực & ${res.cycleNorms?.length || 17} định mức công đoạn từ Google Sheet!`
         );
         setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
       } else {
         setStatusMessage(
           res.error ||
-            'Chưa có dữ liệu đơn hàng trên Google Sheet hoặc Apps Script cần triển khai doGet.'
+            'Chưa có dữ liệu đơn hàng trên Google Sheet hoặc Apps Script cần triển khai phiên bản mới.'
         );
       }
     } catch (err: any) {
-      setStatusMessage(`Lỗi khi đọc: ${err.message}`);
+      setStatusMessage(`Lỗi khi đọc Google Sheet: ${err.message}`);
     } finally {
       setIsSyncing(false);
     }
@@ -132,32 +160,34 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
   // Ghi toàn bộ dữ liệu lên Google Sheet (Push)
   const handlePushAllToSheet = async () => {
     setIsSyncing(true);
-    setStatusMessage('Đang đẩy toàn bộ đơn hàng và lịch lên Google Sheet...');
+    setStatusMessage('Đang đẩy đơn hàng, năng lực tổ & định mức lên Google Sheet...');
     try {
       const success = await pushAllDataToSheet({
         orders,
+        teamCapacity,
+        cycleNorms,
         dailySchedules,
       });
       if (success) {
         setIsConnected(true);
         setStatusMessage(
-          `Đã ghi thành công toàn bộ ${orders.length} đơn hàng và lịch làm việc lên Google Sheet!`
+          `Đã ghi thành công toàn bộ ${orders.length} đơn hàng, ${teamCapacity.length} tổ và ${cycleNorms.length} định mức lên Google Sheet!`
         );
         setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
       } else {
-        setStatusMessage('Ghi thất bại. Vui lòng kiểm tra lại quyền Web App (Anyone).');
+        setStatusMessage('Ghi thất bại. Vui lòng kiểm tra lại quyền truy cập Web App (Anyone).');
       }
     } catch (err: any) {
-      setStatusMessage(`Lỗi khi ghi: ${err.message}`);
+      setStatusMessage(`Lỗi khi ghi lên Google Sheet: ${err.message}`);
     } finally {
       setIsSyncing(false);
     }
   };
 
-  // Gửi lệnh tự động khởi tạo cấu trúc 4 bảng
+  // Tự động khởi tạo cấu trúc 5 bảng
   const handleInitSheets = async () => {
     setIsSyncing(true);
-    setStatusMessage('Đang tạo và định dạng 4 bảng dữ liệu trên Google Sheet...');
+    setStatusMessage('Đang tạo và định dạng 5 bảng dữ liệu trên Google Sheet...');
     try {
       const res = await initGoogleSheetStructure();
       if (res.success) {
@@ -174,14 +204,108 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
     }
   };
 
+  // Tải về 3 file CSV theo đúng yêu cầu người dùng
+  const handleDownloadOrdersCsv = () => {
+    const csv = generateOrdersCsv(orders);
+    downloadCsvFile(`DonHang_LSX_DCAR_${new Date().toISOString().split('T')[0]}.csv`, csv);
+  };
+
+  const handleDownloadCapacityCsv = () => {
+    const csv = generateTeamCapacityCsv(teamCapacity);
+    downloadCsvFile(`NangLuc_NhanSu_17To_${new Date().toISOString().split('T')[0]}.csv`, csv);
+  };
+
+  const handleDownloadNormsCsv = () => {
+    const csv = generateStageCycleNormsCsv(cycleNorms);
+    downloadCsvFile(`DinhMuc_CongDoan_Chuan_${new Date().toISOString().split('T')[0]}.csv`, csv);
+  };
+
+  // Nhập file CSV trực tiếp từ máy tính
+  const handleImportCsvFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (!text) return;
+
+      try {
+        const lines = text.split('\n').filter((l) => l.trim().length > 0);
+        if (lines.length <= 1) {
+          setImportNotification('File CSV không có dữ liệu dòng.');
+          return;
+        }
+
+        const headerLine = lines[0];
+        // Phân biệt file Đơn hàng hay file Năng lực hay file Định mức
+        if (headerLine.includes('Mã LSX') || headerLine.includes('Mã Đơn')) {
+          // Parse orders CSV
+          const importedOrders: OrderItem[] = [];
+          for (let i = 1; i < lines.length; i++) {
+            const cols = lines[i].split(',').map((c) => c.replace(/^"|"$/g, '').trim());
+            if (cols.length >= 5 && cols[0]) {
+              const id = cols[0];
+              const oType = (cols[1] || (id.startsWith('N') ? 'N' : 'G')) as any;
+              importedOrders.push({
+                id,
+                orderType: oType,
+                customerName: cols[2] || 'Khách hàng nhập CSV',
+                contractRef: cols[3] || `HĐ-${id}`,
+                baseModel: cols[4] || 'Ford Transit 18c Premium',
+                conversionVersion: cols[5] || 'Ford Thương Gia 11c (10 ghế VIP)',
+                seatCapacity: 11,
+                exteriorColor: cols[6] || 'Đen Ánh Kim',
+                interiorColor: cols[7] || 'Da Bò Ý',
+                options: [],
+                receivedDate: cols[8] || '2026-10-28',
+                dueDate: cols[9] || '2026-11-16',
+                scheduledStartDate: cols[10] || '2026-11-09',
+                scheduledEndDate: cols[11] || '2026-11-23',
+                status: (cols[12] || 'IN_PRODUCTION') as any,
+                progress: Number(cols[13] || 50),
+                currentDay: 8,
+                currentCluster: Number(cols[14] || 2) as any,
+                currentTeamId: cols[15] || 'T07',
+                fulfillmentType: (cols[16] || (oType === 'G' ? 'NEW_PRODUCTION' : undefined)) as any,
+                btpStatus: (cols[17] || (oType === 'N' ? 'IN_INVENTORY' : undefined)) as any,
+                priorityLevel: 'P3_NORMAL',
+                scheduleHealth: 'ON_TRACK',
+                delayDays: 0,
+                standardLeadTimeDays: 14,
+                actualLeadTimeDays: 0,
+                mrpReady: true,
+                crpFeasible: true,
+                notes: cols[24] || 'Nhập từ file CSV Google Sheet',
+              });
+            }
+          }
+
+          if (importedOrders.length > 0) {
+            onDataLoadedFromSheet(importedOrders, teamCapacity, cycleNorms);
+            setImportNotification(`Đã nhập thành công ${importedOrders.length} đơn hàng từ file CSV!`);
+          }
+        } else {
+          setImportNotification('Đã tiếp nhận cấu trúc file. Vui lòng sử dụng file mẫu chuẩn DCAR để đồng bộ chính xác.');
+        }
+      } catch (err: any) {
+        setImportNotification(`Lỗi đọc file CSV: ${err.message}`);
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const APPS_SCRIPT_CODE = `/**
  * DCAR LIMOUSINE MES - GOOGLE APPS SCRIPT WEB APP BACKEND (Code.gs)
  * Triển khai: Deploy as Web App -> Execute as Me -> Anyone
+ * Phiên bản hoàn chỉnh: Hỗ trợ 2 đầu (GET & POST), đồng bộ Đơn Hàng (G & N), Năng Lực 17 Tổ và Định Mức Công Đoạn
  */
 var SHEET_NAMES = {
   ORDERS: 'DonHang_LSX',
+  CAPACITY: 'NangLuc_NhanSu_To',
+  NORMS: 'DinhMuc_CongDoan',
   SCHEDULE: 'LichNgay_17To',
-  BTP: 'BTP_DongBo',
+  BTP: 'BTP_BanThanhPham',
   DEFECTS: 'ChatLuong_LoiKCS'
 };
 
@@ -196,19 +320,10 @@ function doGet(e) {
     }
     if (action === 'init') {
       seedInitialMESData(ss);
-      return jsonResponse({ success: true, message: 'Đã khởi tạo 4 bảng chuẩn MES!' });
+      return jsonResponse({ success: true, message: 'Đã khởi tạo đủ các bảng chuẩn DCAR MES!' });
     }
     
-    var orders = readSheetAsObjects(ss, SHEET_NAMES.ORDERS);
-    var schedule = readSheetAsObjects(ss, SHEET_NAMES.SCHEDULE);
-    var btp = readSheetAsObjects(ss, SHEET_NAMES.BTP);
-    var defects = readSheetAsObjects(ss, SHEET_NAMES.DEFECTS);
-    
-    return jsonResponse({
-      success: true,
-      data: { orders: orders, dailySchedules: schedule, btpItems: btp, defects: defects },
-      counts: { orders: orders.length, dailySchedules: schedule.length, btpItems: btp.length, defects: defects.length }
-    });
+    return readAllDataResponse(ss);
   } catch(err) {
     return jsonResponse({ success: false, error: err.toString() });
   }
@@ -222,28 +337,42 @@ function doPost(e) {
     if (e && e.postData && e.postData.contents) {
       postData = JSON.parse(e.postData.contents);
     }
-    var action = postData.action || 'syncAll';
+    var action = postData.action || 'getAll';
 
+    // 1. PING
     if (action === 'ping') {
       return jsonResponse({ success: true, status: 'CONNECTED', spreadsheetName: ss.getName() });
     }
+
+    // 2. GET ALL (Sửa lỗi quan trọng: doPost phải trả về full dữ liệu khi action === 'getAll')
+    if (action === 'getAll') {
+      return readAllDataResponse(ss);
+    }
+
+    // 3. KHỞI TẠO DỮ LIỆU
     if (action === 'init') {
       seedInitialMESData(ss);
       return jsonResponse({ success: true, message: 'Đã nạp dữ liệu mẫu DCAR MES thành công!' });
     }
+
+    // 4. TẠO ĐƠN MỚI
     if (action === 'createOrder' && postData.order) {
       var o = postData.order;
       var s = ss.getSheetByName(SHEET_NAMES.ORDERS);
       s.appendRow([
         o.id, o.orderType || 'G', o.customerName, o.contractRef, o.baseModel,
         o.conversionVersion, o.exteriorColor, o.interiorColor, o.receivedDate, o.dueDate,
+        o.scheduledStartDate || '', o.scheduledEndDate || '',
         o.status, o.progress || 0, o.currentDay || 1, o.currentCluster || 1,
-        o.currentStepId, o.currentTeamId, o.currentStepName, o.priorityLevel || 'P3_NORMAL',
-        o.scheduleHealth || 'ON_TRACK', o.delayDays || 0, o.mrpReady ? 'YES' : 'NO',
-        o.notes, new Date().toLocaleString('vi-VN')
+        o.currentStepId, o.currentTeamId, o.currentStepName,
+        o.fulfillmentType || '', o.btpStatus || '', o.pickedFromBtpOrderId || '', o.allocatedToSalesOrderId || '',
+        o.priorityLevel || 'P3_NORMAL', o.scheduleHealth || 'ON_TRACK', o.delayDays || 0,
+        o.mrpReady ? 'YES' : 'NO', o.notes, new Date().toLocaleString('vi-VN')
       ]);
       return jsonResponse({ success: true, message: 'Đã lưu đơn ' + o.id, orderId: o.id });
     }
+
+    // 5. CẬP NHẬT ĐƠN HÀNG (Kế hoạch bắt đầu/hoàn thành, tiến độ)
     if (action === 'updateOrder' && postData.order) {
       var ord = postData.order;
       var s = ss.getSheetByName(SHEET_NAMES.ORDERS);
@@ -253,34 +382,57 @@ function doPost(e) {
         if (String(data[i][0]) === String(ord.id)) { r = i + 1; break; }
       }
       if (r > 0) {
-        s.getRange(r, 11).setValue(ord.status || 'IN_PRODUCTION');
-        s.getRange(r, 12).setValue(ord.progress || 0);
-        s.getRange(r, 13).setValue(ord.currentDay || 1);
-        s.getRange(r, 19).setValue(ord.scheduleHealth || 'ON_TRACK');
-        s.getRange(r, 20).setValue(ord.delayDays || 0);
-        s.getRange(r, 23).setValue(new Date().toLocaleString('vi-VN'));
+        s.getRange(r, 11).setValue(ord.scheduledStartDate || '');
+        s.getRange(r, 12).setValue(ord.scheduledEndDate || '');
+        s.getRange(r, 13).setValue(ord.status || 'IN_PRODUCTION');
+        s.getRange(r, 14).setValue(ord.progress || 0);
+        s.getRange(r, 20).setValue(ord.fulfillmentType || '');
+        s.getRange(r, 21).setValue(ord.btpStatus || '');
+        s.getRange(r, 25).setValue(ord.scheduleHealth || 'ON_TRACK');
+        s.getRange(r, 29).setValue(new Date().toLocaleString('vi-VN'));
         return jsonResponse({ success: true, message: 'Đã cập nhật ' + ord.id });
       }
     }
-    if (action === 'reportDefect' && postData.defect) {
-      var d = postData.defect;
-      var ds = ss.getSheetByName(SHEET_NAMES.DEFECTS);
-      ds.appendRow([
-        d.id || ('DEF-' + Date.now()), d.orderId, d.teamId, d.teamName,
-        d.issueDescription, d.severity || 'MEDIUM', d.reworkHours || 2,
-        d.estimatedCostVND || 400000, d.timestamp || new Date().toLocaleString('vi-VN'), 'OPEN'
-      ]);
-      return jsonResponse({ success: true, message: 'Đã ghi nhận lỗi KCS' });
-    }
+
+    // 6. ĐỒNG BỘ TOÀN BỘ (SYNC ALL)
     if (action === 'syncAll' && postData.payload) {
-      overwriteSheetWithOrders(ss, postData.payload.orders || []);
-      return jsonResponse({ success: true, message: 'Đã đồng bộ toàn bộ lên Google Sheet!' });
+      if (postData.payload.orders) overwriteSheetWithOrders(ss, postData.payload.orders);
+      if (postData.payload.teamCapacity) overwriteSheetWithCapacity(ss, postData.payload.teamCapacity);
+      if (postData.payload.cycleNorms) overwriteSheetWithNorms(ss, postData.payload.cycleNorms);
+      return jsonResponse({ success: true, message: 'Đã đồng bộ toàn bộ 3 bảng lên Google Sheet!' });
     }
 
-    return jsonResponse({ success: true, message: 'OK' });
+    return readAllDataResponse(ss);
   } catch(err) {
     return jsonResponse({ success: false, error: err.toString() });
   }
+}
+
+function readAllDataResponse(ss) {
+  var orders = readSheetAsObjects(ss, SHEET_NAMES.ORDERS);
+  var capacity = readSheetAsObjects(ss, SHEET_NAMES.CAPACITY);
+  var norms = readSheetAsObjects(ss, SHEET_NAMES.NORMS);
+  var schedule = readSheetAsObjects(ss, SHEET_NAMES.SCHEDULE);
+  var btp = readSheetAsObjects(ss, SHEET_NAMES.BTP);
+  var defects = readSheetAsObjects(ss, SHEET_NAMES.DEFECTS);
+  
+  return jsonResponse({
+    success: true,
+    data: {
+      orders: orders,
+      teamCapacity: capacity,
+      cycleNorms: norms,
+      dailySchedules: schedule,
+      btpItems: btp,
+      defects: defects
+    },
+    counts: {
+      orders: orders.length,
+      teamCapacity: capacity.length,
+      cycleNorms: norms.length,
+      dailySchedules: schedule.length
+    }
+  });
 }
 
 function jsonResponse(data) {
@@ -290,25 +442,39 @@ function jsonResponse(data) {
 
 function checkAndInitSheets(ss) {
   var names = ss.getSheets().map(function(s){ return s.getName(); });
+  
+  // 1. DonHang_LSX
   if (names.indexOf(SHEET_NAMES.ORDERS) === -1) {
     var s1 = ss.insertSheet(SHEET_NAMES.ORDERS);
-    s1.appendRow(['Mã LSX','Loại Đơn','Tên Khách Hàng','Số Hợp Đồng','Dòng Xe Cơ Sở','Phiên Bản Độ','Màu Ngoại Thất','Màu Nội Thất','Ngày Nhận Xe','Hạn Giao Xe','Trạng Thái','Tiến Độ %','Ngày Chuyền','Cụm Hiện Tại','Bước Hiện Tại','Tổ Hiện Tại','Tên Bước','Ưu Tiên','Sức Khỏe','Số Ngày Trễ','MRP Sẵn Sàng','Ghi Chú','Cập Nhật Cuối']);
+    s1.appendRow([
+      'Mã LSX','Loại Đơn','Tên Khách Hàng','Số Hợp Đồng','Dòng Xe Cơ Sở','Phiên Bản Độ',
+      'Màu Ngoại Thất','Màu Nội Thất','Ngày Nhận Xe','Hạn Giao Xe',
+      'Ngày KH Bắt Đầu','Ngày KH Hoàn Thành','Trạng Thái','Tiến Độ %','Ngày Chuyền','Cụm Hiện Tại',
+      'Bước Hiện Tại','Tổ Hiện Tại','Tên Bước','Hình Thức Thực Hiện (G)','Trạng Thái BTP (N)',
+      'Mã BTP Được Gán','Đã Xuất Cho Đơn G','Ưu Tiên','Sức Khỏe','Số Ngày Trễ','MRP Sẵn Sàng','Ghi Chú','Cập Nhật Cuối'
+    ]);
     formatHeader(s1);
   }
-  if (names.indexOf(SHEET_NAMES.SCHEDULE) === -1) {
-    var s2 = ss.insertSheet(SHEET_NAMES.SCHEDULE);
-    s2.appendRow(['Mã Lịch','Ngày','Thứ','Mã LSX','Tên Khách Hàng','Phiên Bản','Mã Tổ','Tên Tổ','Cụm','Công Đoạn','Giờ ĐM','Giờ TT','Mức Ưu Tiên','Sức Khỏe','Tiến Độ %','Thợ Chính','Dưỡng Gá Jig','Trạng Thái BTP','Trạng Thái Trạm','Trạm Thượng Nguồn','Giờ Đến']);
+
+  // 2. NangLuc_NhanSu_To
+  if (names.indexOf(SHEET_NAMES.CAPACITY) === -1) {
+    var s2 = ss.insertSheet(SHEET_NAMES.CAPACITY);
+    s2.appendRow([
+      'Mã Tổ','Mã Code','Tên Tổ','Cụm','Số Nhân Sự','Thợ Chính Phụ Trách','Số Thợ Phụ',
+      'Năng Lực Xe/Ngày','Giờ ĐM/Xe','Hiệu Suất Chuẩn %','Ghi Chú Nhiệm Vụ','Cập Nhật Cuối'
+    ]);
     formatHeader(s2);
   }
-  if (names.indexOf(SHEET_NAMES.BTP) === -1) {
-    var s3 = ss.insertSheet(SHEET_NAMES.BTP);
-    s3.appendRow(['Mã BTP','Tên Cụm BTP','Mã Đơn Hàng','Khách Hàng','Phiên Bản','Tổ Phụ Trách','Cụm','SL Yêu Cầu','SL Đã Có','Trạng Thái','Nguyên Nhân Chờ','Dự Kiến Xong']);
+
+  // 3. DinhMuc_CongDoan
+  if (names.indexOf(SHEET_NAMES.NORMS) === -1) {
+    var s3 = ss.insertSheet(SHEET_NAMES.NORMS);
+    s3.appendRow([
+      'Mã Định Mức','Dòng Xe Áp Dụng','Mã Bước','Tên Công Đoạn','Mã Tổ','Tên Tổ Phụ Trách',
+      'Cụm','Thứ Tự Chuyền','Định Mức Giờ Công (h)','Ngày Bắt Đầu Chuyền','Ngày Kết Thúc Chuyền',
+      'Thời Lượng Chuẩn (Ngày)','Ghi Chú Kỹ Thuật'
+    ]);
     formatHeader(s3);
-  }
-  if (names.indexOf(SHEET_NAMES.DEFECTS) === -1) {
-    var s4 = ss.insertSheet(SHEET_NAMES.DEFECTS);
-    s4.appendRow(['Mã Lỗi','Mã LSX','Mã Tổ','Tên Tổ','Mô Tả Lỗi KCS','Mức Độ','Giờ Sửa Hàng','Chi Phí','Ngày Phát Sinh','Trạng Thái']);
-    formatHeader(s4);
   }
 }
 
@@ -332,22 +498,60 @@ function readSheetAsObjects(ss, name) {
   return res;
 }
 
-function seedInitialMESData(ss) {
-  var s = ss.getSheetByName(SHEET_NAMES.ORDERS);
-  if (s.getLastRow() <= 1) {
-    s.appendRow(['G2610021','G','CTY CP VẬN TẢI HOA MAI VŨNG TÀU','HĐ-HM26/10-09','Ford Transit 18c Premium','Ford Thương Gia 11c (10 ghế VIP)','Đen Ánh Kim','Da Bò Ý Nâu Cognac','2026-10-20','2026-11-03','IN_PRODUCTION',90,13,4,'S14','T14','Hạ sàn gỗ Teak & ốp nẹp nhôm','P2_HIGH','ON_TRACK',0,'YES','Tiến độ tốt',new Date().toLocaleString('vi-VN')]);
-    s.appendRow(['B2610002','B','MR. HOÀNG VĂN THÁI (VIP BẢO HÀNH)','HĐ-BH26/10-18','Hyundai Solati 16c','Solati Thượng Đỉnh 10c','Trắng Ngọc Trai','Da Bò Nappa Đỏ Rượu Vang','2026-10-21','2026-11-04','REWORK_ALERT',45,8,4,'S16','T16','Sửa mạch CAN-bus ghế VIP','P1_CRITICAL','REWORK',2,'YES','Chậm 2 ngày do lỗi CAN-bus',new Date().toLocaleString('vi-VN')]);
-    s.appendRow(['G2610023','G','RESORT FUSION CAM RANH','HĐ-FC26/10-15','Ford Transit 18c Premium','Ford VIP Lounge 2026','Xanh Cavansite','Da Maybach Phối Kem','2026-10-26','2026-11-09','IN_PRODUCTION',65,8,3,'S13','T13','Lắp ampli JBL DSP & Subwoofer gầm','P2_HIGH','AT_RISK',1,'YES','Chờ kiểm định ampli',new Date().toLocaleString('vi-VN')]);
-  }
-}
-
 function overwriteSheetWithOrders(ss, orders) {
   var s = ss.getSheetByName(SHEET_NAMES.ORDERS);
   var lr = s.getLastRow();
   if (lr > 1) s.getRange(2, 1, lr - 1, s.getLastColumn()).clearContent();
   for (var i = 0; i < orders.length; i++) {
     var o = orders[i];
-    s.appendRow([o.id, o.orderType || 'G', o.customerName, o.contractRef, o.baseModel, o.conversionVersion, o.exteriorColor, o.interiorColor, o.receivedDate, o.dueDate, o.status, o.progress || 0, o.currentDay || 1, o.currentCluster || 1, o.currentStepId, o.currentTeamId, o.currentStepName, o.priorityLevel || 'P3_NORMAL', o.scheduleHealth || 'ON_TRACK', o.delayDays || 0, o.mrpReady ? 'YES' : 'NO', o.notes, new Date().toLocaleString('vi-VN')]);
+    s.appendRow([
+      o.id, o.orderType || 'G', o.customerName, o.contractRef, o.baseModel,
+      o.conversionVersion, o.exteriorColor, o.interiorColor, o.receivedDate, o.dueDate,
+      o.scheduledStartDate || '', o.scheduledEndDate || '',
+      o.status, o.progress || 0, o.currentDay || 1, o.currentCluster || 1,
+      o.currentStepId, o.currentTeamId, o.currentStepName,
+      o.fulfillmentType || '', o.btpStatus || '', o.pickedFromBtpOrderId || '', o.allocatedToSalesOrderId || '',
+      o.priorityLevel || 'P3_NORMAL', o.scheduleHealth || 'ON_TRACK', o.delayDays || 0,
+      o.mrpReady ? 'YES' : 'NO', o.notes, new Date().toLocaleString('vi-VN')
+    ]);
+  }
+}
+
+function overwriteSheetWithCapacity(ss, capacity) {
+  var s = ss.getSheetByName(SHEET_NAMES.CAPACITY);
+  var lr = s.getLastRow();
+  if (lr > 1) s.getRange(2, 1, lr - 1, s.getLastColumn()).clearContent();
+  for (var i = 0; i < capacity.length; i++) {
+    var c = capacity[i];
+    s.appendRow([
+      c.teamId, c.teamCode, c.teamName, c.clusterId, c.headcount, c.leadCraftsman,
+      c.assistantCraftsmen, c.stdDailyCapacityVehicles, c.stdHoursPerVehicle,
+      c.nominalEfficiencyRate, c.notes, c.updatedAt || new Date().toLocaleString('vi-VN')
+    ]);
+  }
+}
+
+function overwriteSheetWithNorms(ss, norms) {
+  var s = ss.getSheetByName(SHEET_NAMES.NORMS);
+  var lr = s.getLastRow();
+  if (lr > 1) s.getRange(2, 1, lr - 1, s.getLastColumn()).clearContent();
+  for (var i = 0; i < norms.length; i++) {
+    var n = norms[i];
+    s.appendRow([
+      n.id, n.vehicleModel, n.stepId, n.stepName, n.teamId, n.teamName,
+      n.clusterId, n.sequenceOrder, n.standardHours, n.dayStart, n.dayEnd,
+      n.standardLeadDays, n.notes
+    ]);
+  }
+}
+
+function seedInitialMESData(ss) {
+  // Tự động nạp dữ liệu chuẩn nếu các bảng trống
+  var s1 = ss.getSheetByName(SHEET_NAMES.ORDERS);
+  if (s1.getLastRow() <= 1) {
+    s1.appendRow(['G2610021','G','CTY VẬN TẢI HOA MAI LIMOUSINE','HĐ-HM26/10-09','Ford Transit 18c Premium','Ford Thương Gia 11c (10 ghế VIP)','Đen Ánh Kim','Da Bò Ý Nâu Cognac','2026-10-28','2026-11-13','2026-10-31','2026-11-13','IN_PRODUCTION',72,10,4,'S16','T16','Lắp Ghế VIP Điện','NEW_PRODUCTION','','','','P2_HIGH','ON_TRACK',0,'YES','Lô xe tuyến VIP Vũng Tàu',new Date().toLocaleString('vi-VN')]);
+    s1.appendRow(['N2610001','N','KHO BÁN THÀNH PHẨM (Dự phòng BTP)','BTP-STOCK-2026-01','Ford Transit 18c Premium','Ford Thương Gia 11c (10 ghế VIP)','Chưa sơn vỏ','Da Bò Ý Nâu Cognac','2026-10-25','2026-11-20','2026-10-25','2026-11-05','IN_PRODUCTION',85,12,2,'S07','T07','Bọc Mút Xốp Ghế VIP','','IN_INVENTORY','','','P3_NORMAL','ON_TRACK',0,'YES','BTP trữ kho đệm sẵn sàng xuất cho đơn G',new Date().toLocaleString('vi-VN')]);
+    s1.appendRow(['N2610002','N','KHO BÁN THÀNH PHẨM (Đã xuất đơn G)','BTP-STOCK-2026-02','Hyundai Solati H350 16c','Solati Maybach 10 chỗ 2025','Trắng Kim Cương','Da Nappa Kem Phối Xanh Navy','2026-10-20','2026-11-10','2026-10-20','2026-11-02','COMPLETED',100,14,4,'S17','T17','Nghiệm thu xuất xưởng','','ALLOCATED_TO_SALES','','G2610023','P2_HIGH','ON_TRACK',0,'YES','Đã xuất cho đơn bán G2610023',new Date().toLocaleString('vi-VN')]);
   }
 }`;
 
@@ -369,7 +573,7 @@ function overwriteSheetWithOrders(ss, orders) {
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-bold text-white">
-                  Đồng Bộ Dữ Liệu Google Sheet 2 Đầu (Two-Way Sync)
+                  Đồng Bộ Google Sheet 2 Đầu &amp; Quản Lý Dữ Liệu Năng Lực / Định Mức
                 </h3>
                 <span
                   className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold border ${
@@ -388,55 +592,70 @@ function overwriteSheetWithOrders(ss, orders) {
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
-                Đọc dữ liệu nguồn từ Google Sheet và Ghi cập nhật hai chiều (Đơn hàng, Lịch 17 tổ, BTP, Lỗi KCS)
+                Cập nhật đơn hàng (G &amp; N), ngày bắt đầu/kết thúc, năng lực 17 tổ và định mức công đoạn phân công
               </p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Navigation Tabs */}
-        <div className="flex items-center gap-1 px-5 pt-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold">
+        <div className="flex items-center gap-1 px-5 pt-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold overflow-x-auto">
           <button
             onClick={() => setActiveTab('STATUS')}
-            className={`py-2.5 px-4 border-b-2 flex items-center gap-2 transition-all ${
+            className={`py-2.5 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap cursor-pointer ${
               activeTab === 'STATUS'
                 ? 'border-slate-900 text-slate-900 font-bold bg-white rounded-t-lg'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            <span>01. Trạng Thái &amp; Thao Tác 2 Đầu</span>
+            <span>01. Đồng Bộ Trực Tiếp (Two-Way Sync)</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('TEMPLATES')}
+            className={`py-2.5 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap cursor-pointer ${
+              activeTab === 'TEMPLATES'
+                ? 'border-slate-900 text-slate-900 font-bold bg-white rounded-t-lg'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <FileDown className="w-3.5 h-3.5 text-emerald-600" />
+            <span>02. Tải File CSV Mẫu &amp; Nhập Offline</span>
+            <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded font-mono text-[9px] font-bold">
+              3 File
+            </span>
           </button>
 
           <button
             onClick={() => setActiveTab('CODE')}
-            className={`py-2.5 px-4 border-b-2 flex items-center gap-2 transition-all ${
+            className={`py-2.5 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap cursor-pointer ${
               activeTab === 'CODE'
                 ? 'border-slate-900 text-slate-900 font-bold bg-white rounded-t-lg'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Settings className="w-3.5 h-3.5" />
-            <span>02. Mã Nguồn Apps Script (Code.gs)</span>
+            <Settings className="w-3.5 h-3.5 text-indigo-600" />
+            <span>03. Mã Nguồn Apps Script (Code.gs Đã Sửa Lỗi)</span>
           </button>
 
           <button
             onClick={() => setActiveTab('SCHEMA')}
-            className={`py-2.5 px-4 border-b-2 flex items-center gap-2 transition-all ${
+            className={`py-2.5 px-4 border-b-2 flex items-center gap-2 transition-all whitespace-nowrap cursor-pointer ${
               activeTab === 'SCHEMA'
                 ? 'border-slate-900 text-slate-900 font-bold bg-white rounded-t-lg'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Table className="w-3.5 h-3.5" />
-            <span>03. Cấu Trúc 4 Bảng Trên Google Sheet</span>
+            <Table className="w-3.5 h-3.5 text-amber-600" />
+            <span>04. Cấu Trúc Bảng Dữ Liệu</span>
           </button>
         </div>
 
@@ -454,9 +673,9 @@ function overwriteSheetWithOrders(ss, orders) {
                   </label>
                   <button
                     onClick={handleResetDefaultUrl}
-                    className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold"
+                    className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer"
                   >
-                    Khôi phục link mặc định của bạn
+                    Khôi phục link Web App mặc định
                   </button>
                 </div>
 
@@ -470,14 +689,14 @@ function overwriteSheetWithOrders(ss, orders) {
                   />
                   <button
                     onClick={handleSaveUrl}
-                    className="px-3 py-2 bg-slate-900 text-white font-bold rounded-lg hover:bg-slate-800 transition-colors shrink-0"
+                    className="px-3 py-2 bg-slate-900 text-white font-bold rounded-lg hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
                   >
                     Lưu URL
                   </button>
                   <button
                     onClick={handleTestConnection}
                     disabled={isPinging}
-                    className="px-3 py-2 bg-white border border-slate-300 text-slate-800 font-semibold rounded-lg hover:bg-slate-100 transition-colors flex items-center gap-1.5 shrink-0"
+                    className="px-3 py-2 bg-white border border-slate-300 text-slate-800 font-semibold rounded-lg hover:bg-slate-100 transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isPinging ? 'animate-spin text-amber-500' : ''}`} />
                     <span>Ping</span>
@@ -503,7 +722,7 @@ function overwriteSheetWithOrders(ss, orders) {
                       <p className="font-semibold">{statusMessage}</p>
                       {isConnected === false && (
                         <p className="text-[11px] text-amber-800 mt-1">
-                          💡 <em>Lưu ý:</em> Nếu bạn vừa tạo script mới, hãy bấm sang <strong>Tab 2 (Mã Nguồn Code.gs)</strong>, sao chép code và chọn <strong>Triển khai (Deploy as Web App)</strong> với quyền <strong>Anyone</strong> để Google Sheet chấp nhận request.
+                          💡 <em>Lưu ý sửa lỗi:</em> Nếu Google Sheet không phản hồi khi cập nhật, hãy mở <strong>Tab 3 (Mã Nguồn Code.gs)</strong>, sao chép phiên bản mới đã fix lỗi nhận <code>getAll</code> trên cả GET và POST, sau đó bấm <strong>Triển khai (Deploy as Web App)</strong> với quyền <strong>Anyone</strong>.
                         </p>
                       )}
                     </div>
@@ -514,76 +733,79 @@ function overwriteSheetWithOrders(ss, orders) {
               {/* Action Buttons: PULL, PUSH, AUTO-INIT */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Action 1: Đọc từ Sheet (Pull) */}
-                <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3 shadow-2xs hover:border-slate-400 transition-all">
+                <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3 shadow-2xs hover:border-indigo-400 transition-all">
                   <div className="flex items-center gap-2 text-indigo-700">
                     <Download className="w-5 h-5" />
-                    <h4 className="font-bold text-sm text-slate-900">Đọc Dữ Liệu (Pull)</h4>
+                    <h4 className="font-bold text-sm text-slate-900">Đọc Từ Google Sheet (Pull)</h4>
                   </div>
                   <p className="text-[11px] text-slate-500 leading-relaxed">
-                    Lấy danh sách đơn hàng, cập nhật mới nhất từ Google Sheet và nạp vào hệ thống MES.
+                    Đọc dữ liệu mới nhất từ Sheet về MES: Cập nhật đơn hàng (G &amp; N), ngày KH bắt đầu/hoàn thành, năng lực và định mức công đoạn.
                   </p>
                   <button
                     onClick={handlePullFromSheet}
                     disabled={isSyncing}
-                    className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-200 font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shadow-2xs"
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>{isSyncing ? 'Đang đọc...' : 'Đọc Từ Google Sheet'}</span>
+                    <Download className="w-4 h-4" />
+                    <span>{isSyncing ? 'Đang đọc...' : 'Đọc Dữ Liệu Từ Sheet'}</span>
                   </button>
                 </div>
 
                 {/* Action 2: Ghi lên Sheet (Push) */}
-                <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3 shadow-2xs hover:border-slate-400 transition-all">
+                <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3 shadow-2xs hover:border-emerald-400 transition-all">
                   <div className="flex items-center gap-2 text-emerald-700">
                     <Upload className="w-5 h-5" />
-                    <h4 className="font-bold text-sm text-slate-900">Ghi Lên Sheet (Push)</h4>
+                    <h4 className="font-bold text-sm text-slate-900">Ghi Lên Google Sheet (Push)</h4>
                   </div>
                   <p className="text-[11px] text-slate-500 leading-relaxed">
-                    Đẩy toàn bộ {orders.length} Lệnh sản xuất và tiến độ hiện tại lên Google Sheet để lưu trữ.
+                    Đẩy toàn bộ {orders.length} đơn hàng, {teamCapacity.length} tổ năng lực và {cycleNorms.length} định mức công đoạn lên Google Sheet.
                   </p>
                   <button
                     onClick={handlePushAllToSheet}
                     disabled={isSyncing || isReadOnly}
-                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shadow-2xs"
                   >
-                    <Upload className="w-3.5 h-3.5" />
+                    <Upload className="w-4 h-4" />
                     <span>{isSyncing ? 'Đang ghi...' : 'Ghi Lên Google Sheet'}</span>
                   </button>
                 </div>
 
-                {/* Action 3: Tự động khởi tạo 4 bảng */}
+                {/* Action 3: Tự động khởi tạo cấu trúc */}
                 <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3 shadow-2xs hover:border-slate-400 transition-all">
                   <div className="flex items-center gap-2 text-amber-700">
                     <Sparkles className="w-5 h-5 text-amber-500" />
-                    <h4 className="font-bold text-sm text-slate-900">Khởi Tạo Cấu Trúc</h4>
+                    <h4 className="font-bold text-sm text-slate-900">Khởi Tạo Bảng Mới</h4>
                   </div>
                   <p className="text-[11px] text-slate-500 leading-relaxed">
-                    Tự động tạo 4 tab (`DonHang_LSX`, `LichNgay_17To`, `BTP_DongBo`, `ChatLuong_LoiKCS`) trên Google Sheet.
+                    Tự động tạo các tab chuẩn: <code>DonHang_LSX</code>, <code>NangLuc_NhanSu_To</code>, <code>DinhMuc_CongDoan</code>, <code>LichNgay_17To</code>.
                   </p>
                   <button
                     onClick={handleInitSheets}
                     disabled={isSyncing || isReadOnly}
-                    className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shadow-2xs"
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Tự Động Tạo 4 Bảng</span>
+                    <Sparkles className="w-4 h-4" />
+                    <span>Khởi Tạo Cấu Trúc Bảng</span>
                   </button>
                 </div>
               </div>
 
               {/* Live Statistics & Setting Strip */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="text-center sm:text-left">
-                    <span className="text-[10px] text-slate-500 block">Số đơn hiện tại trong App:</span>
-                    <strong className="font-mono text-base text-slate-900">{orders.length} Đơn</strong>
+                <div className="flex items-center gap-6">
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Đơn hàng trong hệ thống:</span>
+                    <strong className="font-mono text-sm text-slate-900">{orders.length} Đơn (G &amp; N)</strong>
                   </div>
                   <div className="h-6 w-px bg-slate-200" />
-                  <div className="text-center sm:text-left">
-                    <span className="text-[10px] text-slate-500 block">Lần đồng bộ gần nhất:</span>
-                    <strong className="font-mono text-xs text-slate-700">
-                      {lastSyncTime || 'Chưa đồng bộ phiên này'}
-                    </strong>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Năng lực 17 tổ:</span>
+                    <strong className="font-mono text-sm text-slate-900">{teamCapacity.length} Tổ sẵn sàng</strong>
+                  </div>
+                  <div className="h-6 w-px bg-slate-200" />
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Định mức công đoạn:</span>
+                    <strong className="font-mono text-sm text-slate-900">{cycleNorms.length} Định mức</strong>
                   </div>
                 </div>
 
@@ -595,45 +817,160 @@ function overwriteSheetWithOrders(ss, orders) {
                       onChange={(e) => handleToggleAutoSync(e.target.checked)}
                       className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
                     />
-                    <span>Tự động đẩy lên Google Sheet khi tạo/sửa đơn &amp; báo lỗi KCS</span>
+                    <span>Tự động đẩy lên Google Sheet khi duyệt kế hoạch</span>
                   </label>
                 </div>
               </div>
             </div>
           )}
 
-          {/* TAB 2: APPS SCRIPT CODE (Code.gs) */}
+          {/* TAB 2: EXPORT 3 STANDARDIZED CSV FILES & DIRECT CSV IMPORT */}
+          {activeTab === 'TEMPLATES' && (
+            <div className="space-y-6">
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg space-y-1 text-emerald-950">
+                <h4 className="font-bold text-sm flex items-center gap-2">
+                  <FileDown className="w-4 h-4 text-emerald-700" />
+                  <span>Tải Về 3 File Google Sheet / Excel Chuẩn Chuẩn Hóa Theo Đơn Vị DCAR:</span>
+                </h4>
+                <p className="text-xs text-emerald-800">
+                  Bạn có thể tải ngay 3 file này về mở bằng Google Sheet hoặc Excel, chỉnh sửa nhân sự, năng lực hoặc ngày kế hoạch, sau đó nạp lại vào phần mềm mà không cần cài đặt Apps Script.
+                </p>
+              </div>
+
+              {/* 3 CSV Download Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* File 1: Đơn Hàng & Ngày Kế Hoạch */}
+                <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3 shadow-2xs hover:border-slate-400 transition-all flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-bold px-2 py-0.5 bg-amber-100 text-amber-900 rounded">
+                        FILE 1 · ĐƠN HÀNG
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">{orders.length} dòng</span>
+                    </div>
+                    <h4 className="font-bold text-sm text-slate-900">DonHang_LSX.csv</h4>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Lưu thông tin Lệnh sản xuất, khách hàng, ngày nhận xe, hạn giao xe, ngày KH bắt đầu và hoàn thành, loại đơn (G &amp; N), trạng thái BTP tồn kho/xuất cho đơn G.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleDownloadOrdersCsv}
+                    className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
+                  >
+                    <Download className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Tải DonHang_LSX.csv</span>
+                  </button>
+                </div>
+
+                {/* File 2: Năng Lực & Nhân Sự Tổ */}
+                <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3 shadow-2xs hover:border-slate-400 transition-all flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-bold px-2 py-0.5 bg-indigo-100 text-indigo-900 rounded">
+                        FILE 2 · NHÂN SỰ TỔ
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">17 tổ</span>
+                    </div>
+                    <h4 className="font-bold text-sm text-slate-900">NangLuc_NhanSu_To.csv</h4>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Thông tin năng lực và nhân sự 17 tổ thuộc 4 cụm, số thợ chính, thợ phụ, năng lực xe/ngày, giờ định mức/xe phục vụ phân công công việc và cân đối tải.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleDownloadCapacityCsv}
+                    className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
+                  >
+                    <Download className="w-3.5 h-3.5 text-indigo-200" />
+                    <span>Tải NangLuc_NhanSu_To.csv</span>
+                  </button>
+                </div>
+
+                {/* File 3: Định Mức Công Đoạn */}
+                <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3 shadow-2xs hover:border-slate-400 transition-all flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-bold px-2 py-0.5 bg-emerald-100 text-emerald-900 rounded">
+                        FILE 3 · ĐỊNH MỨC
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-mono">{cycleNorms.length} bước</span>
+                    </div>
+                    <h4 className="font-bold text-sm text-slate-900">DinhMuc_CongDoan.csv</h4>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Định mức giờ công chuẩn cho 17 công đoạn (S01 → S17), thứ tự chuyền, tổ phụ trách, thời lượng chuẩn ngày để lập kế hoạch phân công và điều chỉnh.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleDownloadNormsCsv}
+                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
+                  >
+                    <Download className="w-3.5 h-3.5 text-emerald-200" />
+                    <span>Tải DinhMuc_CongDoan.csv</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Direct File / CSV Import Box */}
+              <div className="p-4 bg-slate-50 border border-slate-300 rounded-lg space-y-3">
+                <div className="flex items-center gap-2 text-slate-900">
+                  <FileUp className="w-4 h-4 text-amber-600" />
+                  <h4 className="font-bold text-sm">Nhập File CSV Vào Hệ Thống (Import Trực Tiếp):</h4>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Sau khi điều chỉnh nhân sự, ngày bắt đầu hoặc ngày hoàn thành trên Google Sheet / Excel, xuất file CSV và chọn bên dưới để cập nhật tức thì:
+                </p>
+
+                <div className="flex items-center gap-3">
+                  <label className="px-4 py-2 bg-white border border-slate-300 hover:border-slate-400 text-slate-800 font-semibold rounded-lg flex items-center gap-2 cursor-pointer transition-colors shadow-2xs">
+                    <Upload className="w-4 h-4 text-slate-600" />
+                    <span>Chọn File CSV Để Đồng Bộ</span>
+                    <input
+                      type="file"
+                      accept=".csv,text/csv"
+                      onChange={handleImportCsvFile}
+                      className="hidden"
+                    />
+                  </label>
+                  {importNotification && (
+                    <span className="font-semibold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded border border-emerald-200">
+                      {importNotification}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: APPS SCRIPT CODE (Code.gs) */}
           {activeTab === 'CODE' && (
             <div className="space-y-4">
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg space-y-2 text-amber-950">
                 <h4 className="font-bold flex items-center gap-1.5">
                   <Settings className="w-4 h-4 text-amber-600" />
-                  <span>Hướng Dẫn Cài Đặt 3 Bước Trên Google Sheet Của Bạn:</span>
+                  <span>Hướng Dẫn Cập Nhật Code.gs Đã Khắc Phục Lỗi Đồng Bộ:</span>
                 </h4>
                 <ol className="list-decimal list-inside space-y-1 text-[11px] leading-relaxed">
                   <li>
-                    Mở file Google Sheet của bạn &gt; Menu <strong>Tiện ích mở rộng (Extensions)</strong> &gt; <strong>Apps Script</strong>.
+                    Mở Google Sheet của bạn &gt; Menu <strong>Tiện ích mở rộng (Extensions)</strong> &gt; <strong>Apps Script</strong>.
                   </li>
                   <li>
-                    Xóa toàn bộ mã trong file <code>Code.gs</code>, bấm nút <strong>Sao Chép Mã Apps Script</strong> bên dưới và dán vào. Bấm Lưu (Ctrl + S).
+                    Xóa toàn bộ nội dung cũ trong <code>Code.gs</code>, bấm nút <strong>Sao Chép Mã Apps Script</strong> bên dưới và dán vào. Bấm Lưu (Ctrl + S).
                   </li>
                   <li>
-                    Bấm <strong>Triển khai (Deploy)</strong> &gt; <strong>Triển khai mới (New deployment)</strong> &gt; Chọn <strong>Ứng dụng web (Web app)</strong>:
-                    <ul className="list-disc list-inside pl-4 text-slate-700 font-mono mt-0.5">
-                      <li>Execute as (Thực thi dưới dạng): <strong>Tôi (Me)</strong></li>
-                      <li>Who has access (Ai có quyền): <strong>Bất kỳ ai (Anyone)</strong> (để ứng dụng MES kết nối đọc/ghi được).</li>
-                    </ul>
+                    Bấm <strong>Triển khai (Deploy)</strong> &gt; <strong>Quản lý bản triển khai (Manage deployments)</strong> &gt; Bấm biểu tượng Bút chì &gt; Chọn <strong>Phiên bản mới (New version)</strong> &gt; Bấm <strong>Triển khai (Deploy)</strong>.
+                  </li>
+                  <li>
+                    Quyền truy cập đặt là <strong>Bất kỳ ai (Anyone)</strong> để Web App nhận dữ liệu 2 chiều.
                   </li>
                 </ol>
               </div>
 
               <div className="flex items-center justify-between">
                 <span className="font-mono text-xs font-bold text-slate-700">
-                  Mã Nguồn Apps Script (Code.gs) · Hỗ Trợ Đọc &amp; Ghi 2 Đầu:
+                  Mã Nguồn Apps Script (Code.gs) Đã Sửa Lỗi getAll &amp; Hỗ Trợ 3 Bảng:
                 </span>
                 <button
                   onClick={handleCopyCode}
-                  className="px-3 py-1.5 bg-slate-900 text-amber-400 font-bold rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1.5 shadow-2xs"
+                  className="px-3 py-1.5 bg-slate-900 text-amber-400 font-bold rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
                 >
                   {copiedCode ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                   <span>{copiedCode ? 'Đã Sao Chép Vào Bộ Nhớ!' : 'Sao Chép Mã Apps Script'}</span>
@@ -646,29 +983,29 @@ function overwriteSheetWithOrders(ss, orders) {
             </div>
           )}
 
-          {/* TAB 3: SHEET SCHEMA & STRUCTURE */}
+          {/* TAB 4: SHEET SCHEMA & STRUCTURE */}
           {activeTab === 'SCHEMA' && (
             <div className="space-y-5">
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-blue-900 text-xs">
-                Hệ thống MES tự động đọc và phân loại dữ liệu theo 4 tab trên Google Sheet:
+                Cấu trúc các bảng dữ liệu trên Google Sheet được thiết kế đồng bộ hoàn hảo với hệ thống MES:
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Sheet 1 */}
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-mono font-bold text-slate-900 text-sm">
-                      1. Tab: DonHang_LSX
+                      1. DonHang_LSX
                     </span>
                     <span className="text-[10px] bg-amber-100 text-amber-800 font-mono font-bold px-1.5 py-0.5 rounded">
-                      23 Cột
+                      Đơn Hàng
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500">
-                    Lưu trữ toàn bộ thông tin Lệnh sản xuất, tiến độ %, hợp đồng, dòng xe, màu sắc và sức khỏe giao xe.
+                    Lưu Lệnh sản xuất, ngày KH bắt đầu, ngày KH hoàn thành, đơn bán (G), đơn BTP (N), trạng thái tồn kho hoặc đã xuất.
                   </p>
                   <div className="p-2 bg-white rounded border border-slate-200 font-mono text-[10px] text-slate-600 max-h-24 overflow-y-auto">
-                    Mã LSX, Loại Đơn, Tên Khách Hàng, Số Hợp Đồng, Dòng Xe Cơ Sở, Phiên Bản Độ, Màu Ngoại Thất, Màu Nội Thất, Ngày Nhận Xe, Hạn Giao Xe, Trạng Thái, Tiến Độ %, Ngày Chuyền, Cụm Hiện Tại, Bước Hiện Tại, Tổ Hiện Tại, Tên Bước, Ưu Tiên, Sức Khỏe, Số Ngày Trễ, MRP Sẵn Sàng, Ghi Chú, Cập Nhật Cuối
+                    Mã LSX, Loại Đơn, Tên Khách Hàng, Số Hợp Đồng, Dòng Xe, Ngày Tiếp Nhận, Hạn Giao Xe, Ngày KH Bắt Đầu, Ngày KH Hoàn Thành, Trạng Thái, Tiến Độ %, Cụm Hiện Tại, Tổ Hiện Tại, Hình Thức Thực Hiện (G), Trạng Thái BTP (N), Ghi Chú
                   </div>
                 </div>
 
@@ -676,17 +1013,17 @@ function overwriteSheetWithOrders(ss, orders) {
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-mono font-bold text-slate-900 text-sm">
-                      2. Tab: LichNgay_17To
+                      2. NangLuc_NhanSu_To
                     </span>
                     <span className="text-[10px] bg-indigo-100 text-indigo-800 font-mono font-bold px-1.5 py-0.5 rounded">
-                      21 Cột
+                      Năng Lực &amp; Thợ
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500">
-                    Phân bổ kế hoạch ca ngày cho 17 tổ, phân công thợ chính, dưỡng gá Jig và đón đầu phôi từ trạm thượng nguồn.
+                    Lưu thông tin nhân sự 17 tổ, thợ chính phụ trách trạm, số thợ phụ, năng lực xe/ngày, giờ ĐM/xe để phân công công việc.
                   </p>
                   <div className="p-2 bg-white rounded border border-slate-200 font-mono text-[10px] text-slate-600 max-h-24 overflow-y-auto">
-                    Mã Lịch, Ngày, Thứ, Mã LSX, Tên Khách Hàng, Phiên Bản, Mã Tổ, Tên Tổ, Cụm, Công Đoạn, Giờ ĐM, Giờ TT, Mức Ưu Tiên, Sức Khỏe, Tiến Độ %, Thợ Chính, Dưỡng Gá Jig, Trạng Thái BTP, Trạng Thái Trạm, Trạm Thượng Nguồn, Giờ Đến Dự Kiến
+                    Mã Tổ, Mã Code, Tên Tổ, Cụm, Số Nhân Sự, Thợ Chính Phụ Trách, Số Thợ Phụ, Năng Lực Xe/Ngày, Giờ ĐM/Xe, Hiệu Suất Chuẩn %, Ghi Chú Nhiệm Vụ
                   </div>
                 </div>
 
@@ -694,35 +1031,17 @@ function overwriteSheetWithOrders(ss, orders) {
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-mono font-bold text-slate-900 text-sm">
-                      3. Tab: BTP_DongBo
+                      3. DinhMuc_CongDoan
                     </span>
                     <span className="text-[10px] bg-emerald-100 text-emerald-800 font-mono font-bold px-1.5 py-0.5 rounded">
-                      12 Cột
+                      Định Mức Giờ
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500">
-                    Quản trị Kit-to-Order: Bán thành phẩm mộc, may, điện sẵn sàng tại chân xe trước khi vào Cụm 4 Lắp ráp.
+                    Định mức giờ công chuẩn theo từng dòng xe, mã bước S01-S17, tổ phụ trách, thời lượng chuẩn ngày để điều chỉnh tiến độ.
                   </p>
                   <div className="p-2 bg-white rounded border border-slate-200 font-mono text-[10px] text-slate-600 max-h-24 overflow-y-auto">
-                    Mã BTP, Tên Cụm BTP, Mã Đơn Hàng, Khách Hàng, Phiên Bản, Tổ Phụ Trách, Cụm, SL Yêu Cầu, SL Đã Có, Trạng Thái Đồng Bộ, Nguyên Nhân Chờ, Dự Kiến Sẵn Sàng
-                  </div>
-                </div>
-
-                {/* Sheet 4 */}
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-slate-900 text-sm">
-                      4. Tab: ChatLuong_LoiKCS
-                    </span>
-                    <span className="text-[10px] bg-rose-100 text-rose-800 font-mono font-bold px-1.5 py-0.5 rounded">
-                      10 Cột
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500">
-                    Nhật ký phát sinh lỗi KCS, số giờ sửa hàng (rework), chi phí hao phí phục vụ Biểu đồ Pareto 80/20.
-                  </p>
-                  <div className="p-2 bg-white rounded border border-slate-200 font-mono text-[10px] text-slate-600 max-h-24 overflow-y-auto">
-                    Mã Lỗi, Mã LSX, Mã Tổ, Tên Tổ, Mô Tả Lỗi KCS, Mức Độ, Giờ Sửa Hàng, Chi Phí Hao Phí, Thời Gian Phát Sinh, Trạng Thái Xử Lý
+                    Mã Định Mức, Dòng Xe, Mã Bước, Tên Công Đoạn, Mã Tổ, Tên Tổ Phụ Trách, Cụm, Thứ Tự Chuyền, Định Mức Giờ Công, Thời Lượng Chuẩn Ngày
                   </div>
                 </div>
               </div>
@@ -734,7 +1053,7 @@ function overwriteSheetWithOrders(ss, orders) {
         <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-            <span>Đồng bộ 2 đầu: Tự động ghi khi cập nhật và đọc theo chu kỳ</span>
+            <span>Hỗ trợ 2 chiều: Tự động ghi khi TPSX phê duyệt và đồng bộ dữ liệu thời gian thực</span>
           </div>
 
           <button

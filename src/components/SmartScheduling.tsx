@@ -19,6 +19,7 @@ import {
   INITIAL_TEAMS,
   CLUSTERS,
 } from '../data/mockData';
+import { ProductionOrderPrintModal } from './ProductionOrderPrintModal';
 import {
   Calendar,
   CheckCircle2,
@@ -56,6 +57,7 @@ import {
   Activity,
   FileText,
   Users,
+  TrendingUp,
 } from 'lucide-react';
 
 interface SmartSchedulingProps {
@@ -63,7 +65,10 @@ interface SmartSchedulingProps {
   materials: MRPItem[];
   workcenters: CRPWorkcenter[];
   currentRole: Role;
-  onApproveWeeklyPlan: (approvedOrderIds: string[]) => void;
+  onApproveWeeklyPlan: (
+    approvedOrderIds: string[],
+    scheduleDateOverrides?: Record<string, { plannedStartDate: string; plannedEndDate: string }>
+  ) => void;
   onApplyBatchGroups: (batches: BatchGroupSuggestion[]) => void;
   onKittingOrder: (materialCode: string, qty: number) => void;
   onNavigate?: (target: NavigationTarget) => void;
@@ -126,6 +131,7 @@ export const SmartScheduling: React.FC<SmartSchedulingProps> = ({
   const [taskStatusMap, setTaskStatusMap] = useState<Record<string, string>>({});
   const [stationReadyConfirmed, setStationReadyConfirmed] = useState<Record<string, boolean>>({});
   const [actionSuccessToast, setActionSuccessToast] = useState<string | null>(null);
+  const [printingOrder, setPrintingOrder] = useState<OrderItem | null>(null);
 
   // Sync navigation props when changed
   useEffect(() => {
@@ -171,6 +177,59 @@ export const SmartScheduling: React.FC<SmartSchedulingProps> = ({
     );
     return drafts.map((o) => o.id);
   });
+
+  // Planned Start Date & Planned Completion Date per Order for TPSX approval
+  const [orderPlannedDates, setOrderPlannedDates] = useState<
+    Record<string, { plannedStartDate: string; plannedEndDate: string }>
+  >(() => {
+    const map: Record<string, { plannedStartDate: string; plannedEndDate: string }> = {};
+    orders.forEach((o) => {
+      // Calculate a sensible default (startDate e.g. next Monday or current scheduledStartDate)
+      const start = o.scheduledStartDate || '2026-11-09';
+      // Default end date is 14 days later or order due date
+      const end = o.scheduledEndDate || o.dueDate || '2026-11-23';
+      map[o.id] = { plannedStartDate: start, plannedEndDate: end };
+    });
+    return map;
+  });
+
+  // Batch date selectors for quick application to selected orders
+  const [batchStartDate, setBatchStartDate] = useState<string>('2026-11-09');
+  const [batchEndDate, setBatchEndDate] = useState<string>('2026-11-23');
+
+  const handleApplyBatchDates = () => {
+    if (selectedOrderIds.length === 0) {
+      setActionSuccessToast('Vui lòng tích chọn ít nhất 1 đơn hàng để áp dụng ngày!');
+      return;
+    }
+    setOrderPlannedDates((prev) => {
+      const next = { ...prev };
+      selectedOrderIds.forEach((id) => {
+        next[id] = {
+          plannedStartDate: batchStartDate,
+          plannedEndDate: batchEndDate,
+        };
+      });
+      return next;
+    });
+    setActionSuccessToast(
+      `Đã áp dụng ngày KH (${batchStartDate} → ${batchEndDate}) cho ${selectedOrderIds.length} đơn hàng được chọn!`
+    );
+  };
+
+  const handleUpdateOrderDate = (
+    orderId: string,
+    field: 'plannedStartDate' | 'plannedEndDate',
+    val: string
+  ) => {
+    setOrderPlannedDates((prev) => ({
+      ...prev,
+      [orderId]: {
+        ...(prev[orderId] || { plannedStartDate: '2026-11-09', plannedEndDate: '2026-11-23' }),
+        [field]: val,
+      },
+    }));
+  };
 
   // Toggle single order
   const handleToggleOrder = (orderId: string) => {
@@ -275,7 +334,7 @@ export const SmartScheduling: React.FC<SmartSchedulingProps> = ({
 
   const handleApprove = () => {
     if (!canApprove || selectedOrderIds.length === 0) return;
-    onApproveWeeklyPlan(selectedOrderIds);
+    onApproveWeeklyPlan(selectedOrderIds, orderPlannedDates);
   };
 
   const handleApplyBatchingClick = () => {
@@ -488,6 +547,18 @@ export const SmartScheduling: React.FC<SmartSchedulingProps> = ({
           <Layers className="w-4 h-4 text-slate-500" />
           <span>05. Định Biên Năng Lực Xưởng (CRP 95 Thợ)</span>
         </button>
+
+        {onNavigate && (
+          <button
+            onClick={() => onNavigate({ tab: 'gantt', sourceDesc: 'Từ Phân Hệ Lập Lịch Sản Xuất' })}
+            className="ml-auto py-1.5 px-3 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap shadow-2xs cursor-pointer my-1.5 mr-1"
+            title="Mở Biểu Đồ Gantt Tiến Độ Sản Xuất 14 Ngày Chuyền"
+          >
+            <TrendingUp className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Biểu Đồ Gantt (14 Ngày)</span>
+            <ArrowUpRight className="w-3.5 h-3.5 text-indigo-500" />
+          </button>
+        )}
       </div>
 
       {/* ======================================================== */}
@@ -548,6 +619,22 @@ export const SmartScheduling: React.FC<SmartSchedulingProps> = ({
                   <Maximize2 className="w-3.5 h-3.5 text-indigo-600" />
                   <span>Màn Hình Kiosk Chuyền</span>
                 </button>
+
+                {/* Quick Link to Daily Productivity Report */}
+                {onNavigate && (
+                  <button
+                    onClick={() => onNavigate({
+                      tab: 'dashboard',
+                      subView: 'DAILY_PRODUCTIVITY',
+                      sourceDesc: 'Từ Điều Phối Lịch Ngày Sang Báo Cáo Năng Suất 17 Tổ'
+                    })}
+                    className="px-3 py-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-300 hover:bg-emerald-100 rounded-lg transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                    title="Mở Báo Cáo Năng Suất & Hiệu Suất Theo Ngày Của 17 Tổ"
+                  >
+                    <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Báo Cáo Năng Suất 17 Tổ ↗</span>
+                  </button>
+                )}
 
                 {/* Auto Suggest Priority Button (For Planner) */}
                 {!isReadOnly && scheduleViewRole === 'PLANNER' && (
@@ -1672,11 +1759,60 @@ export const SmartScheduling: React.FC<SmartSchedulingProps> = ({
                 ))}
               </div>
 
-              {/* Table of Orders */}
-              <div className="overflow-x-auto">
+              {/* BATCH DATE CONFIGURATION TOOLBAR FOR TPSX */}
+              <div className="bg-slate-50 border border-slate-200/90 rounded-lg p-2.5 flex flex-wrap items-center justify-between gap-2.5 text-xs">
+                <div className="flex items-center gap-2">
+                  <div className="p-1 rounded bg-amber-100 text-amber-800">
+                    <Calendar className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-800 block text-[11px]">
+                      Thiết Lập Ngày Kế Hoạch Đồng Loạt:
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      Áp dụng nhanh cho {selectedOrderIds.length} đơn hàng đang được tích chọn
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center flex-wrap gap-2 font-mono">
+                  <div className="flex items-center gap-1 bg-white px-2 py-1 rounded border border-slate-200">
+                    <span className="text-[10px] text-slate-500 font-sans">Bắt đầu:</span>
+                    <input
+                      type="date"
+                      value={batchStartDate}
+                      onChange={(e) => setBatchStartDate(e.target.value)}
+                      className="text-xs font-bold text-slate-900 bg-transparent border-0 p-0 focus:ring-0 cursor-pointer"
+                    />
+                  </div>
+
+                  <span className="text-slate-400 font-sans">→</span>
+
+                  <div className="flex items-center gap-1 bg-white px-2 py-1 rounded border border-slate-200">
+                    <span className="text-[10px] text-slate-500 font-sans">Hoàn thành:</span>
+                    <input
+                      type="date"
+                      value={batchEndDate}
+                      onChange={(e) => setBatchEndDate(e.target.value)}
+                      className="text-xs font-bold text-slate-900 bg-transparent border-0 p-0 focus:ring-0 cursor-pointer"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleApplyBatchDates}
+                    className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded font-sans font-semibold text-[11px] transition-colors shadow-2xs cursor-pointer flex items-center gap-1"
+                  >
+                    <span>Áp Dụng Hàng Loạt</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Table of Orders with Editable Planned Start & End Dates */}
+              <div className="overflow-x-auto border border-slate-200 rounded-lg">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                    <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-700 font-bold">
                       <th className="py-2.5 px-2 text-center w-8">
                         <input
                           type="checkbox"
@@ -1692,17 +1828,41 @@ export const SmartScheduling: React.FC<SmartSchedulingProps> = ({
                         />
                       </th>
                       <th className="py-2.5 px-3">Mã LSX / Khách Hàng</th>
-                      <th className="py-2.5 px-2">Dòng Xe &amp; Phiên Bản</th>
-                      <th className="py-2.5 px-2 text-center font-mono">Định Mức</th>
-                      <th className="py-2.5 px-2 text-center">Hẹn Giao</th>
+                      <th className="py-2.5 px-2">Dòng Xe</th>
+                      <th className="py-2.5 px-2 font-mono text-center">Định Mức</th>
+                      <th className="py-2.5 px-2 bg-amber-50/70 text-amber-900">
+                        <div className="flex items-center gap-1">
+                          <Calendar className="w-3 h-3 text-amber-600" />
+                          <span>KH Bắt Đầu</span>
+                        </div>
+                      </th>
+                      <th className="py-2.5 px-2 bg-amber-50/70 text-amber-900">
+                        <div className="flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-600" />
+                          <span>KH Hoàn Thành</span>
+                        </div>
+                      </th>
+                      <th className="py-2.5 px-2 text-center">Hạn Giao / Đánh Giá</th>
                       <th className="py-2.5 px-2 text-center">Vật Tư MRP</th>
                       <th className="py-2.5 px-2 text-center">Năng Lực CRP</th>
+                      <th className="py-2.5 px-2 text-center">In LSX</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredCandidateOrders.map((order) => {
                       const isSelected = selectedOrderIds.includes(order.id);
                       const stdHours = STANDARD_HOURS_MAP[order.conversionVersion] || DEFAULT_STANDARD_HOURS;
+                      const planDates = orderPlannedDates[order.id] || {
+                        plannedStartDate: order.scheduledStartDate || '2026-11-09',
+                        plannedEndDate: order.scheduledEndDate || order.dueDate || '2026-11-23',
+                      };
+
+                      // Compare planned end date with customer delivery due date
+                      const isOverdue = planDates.plannedEndDate > order.dueDate;
+                      const dueDateObj = new Date(order.dueDate);
+                      const planEndObj = new Date(planDates.plannedEndDate);
+                      const diffTime = planEndObj.getTime() - dueDateObj.getTime();
+                      const overdueDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
                       return (
                         <tr
@@ -1735,23 +1895,58 @@ export const SmartScheduling: React.FC<SmartSchedulingProps> = ({
                                 {order.orderType}
                               </span>
                             </div>
-                            <span className="text-[11px] text-slate-500 block truncate max-w-xs">
+                            <span className="text-[11px] text-slate-500 block truncate max-w-[140px]">
                               {order.customerName}
                             </span>
                           </td>
                           <td className="py-2.5 px-2">
-                            <span className="font-semibold text-slate-800 block text-[11px]">
+                            <span className="font-semibold text-slate-800 block text-[11px] truncate max-w-[130px]">
                               {order.conversionVersion}
                             </span>
                             <span className="text-[10px] text-slate-500">
-                              {order.baseModel} · {order.seatCapacity} chỗ
+                              {order.baseModel} · {order.seatCapacity}c
                             </span>
                           </td>
                           <td className="py-2.5 px-2 text-center font-mono font-bold text-slate-700">
                             {stdHours}h
                           </td>
-                          <td className="py-2.5 px-2 text-center font-mono text-slate-600">
-                            {order.dueDate.slice(5)}
+                          <td className="py-2.5 px-2 bg-amber-50/30" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="date"
+                              value={planDates.plannedStartDate}
+                              onChange={(e) =>
+                                handleUpdateOrderDate(order.id, 'plannedStartDate', e.target.value)
+                              }
+                              className="w-28 text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded border border-slate-300 bg-white text-slate-900 focus:ring-1 focus:ring-amber-500 cursor-pointer"
+                            />
+                          </td>
+                          <td className="py-2.5 px-2 bg-amber-50/30" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="date"
+                              value={planDates.plannedEndDate}
+                              onChange={(e) =>
+                                handleUpdateOrderDate(order.id, 'plannedEndDate', e.target.value)
+                              }
+                              className={`w-28 text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded border ${
+                                isOverdue
+                                  ? 'border-rose-400 bg-rose-50/50 text-rose-800'
+                                  : 'border-slate-300 bg-white text-slate-900'
+                              } focus:ring-1 focus:ring-amber-500 cursor-pointer`}
+                            />
+                          </td>
+                          <td className="py-2.5 px-2 text-center">
+                            <span className="font-mono text-slate-600 block text-[11px]">
+                              {order.dueDate.slice(5)}
+                            </span>
+                            {isOverdue ? (
+                              <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                                ⚠️ Trễ {overdueDays} ngày
+                              </span>
+                            ) : (
+                              <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                ✓ Kịp giao
+                              </span>
+                            )}
                           </td>
                           <td className="py-2.5 px-2 text-center">
                             <span
@@ -1774,6 +1969,17 @@ export const SmartScheduling: React.FC<SmartSchedulingProps> = ({
                             >
                               {order.crpFeasible ? 'KHẢ THI' : 'CẬN TẢI'}
                             </span>
+                          </td>
+                          <td className="py-2.5 px-2 text-center" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => setPrintingOrder(order)}
+                              className="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded font-semibold text-[11px] flex items-center justify-center gap-1 mx-auto transition-colors cursor-pointer"
+                              title="In Lệnh Sản Xuất theo biểu mẫu chuẩn ISO CM-PR01-F01"
+                            >
+                              <Printer className="w-3 h-3 text-slate-700" />
+                              <span>In</span>
+                            </button>
                           </td>
                         </tr>
                       );
@@ -1907,21 +2113,34 @@ export const SmartScheduling: React.FC<SmartSchedulingProps> = ({
                 </div>
 
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  Khi nhấn phê duyệt, toàn bộ <strong>{selectedOrders.length} đơn hàng đã chọn</strong> (tương ứng <strong>{cumulativeHours} giờ công</strong>) sẽ chính thức được ban hành thành Lệnh Sản Xuất (LSX) xuống 17 tổ xưởng.
+                  Khi nhấn phê duyệt, toàn bộ <strong>{selectedOrders.length} đơn hàng đã chọn</strong> (tương ứng <strong>{cumulativeHours} giờ công</strong>) sẽ chính thức được chuyển sang trạng thái <strong>Chờ sản xuất (dựa trên ngày triển khai)</strong> và ban hành Lệnh Sản Xuất (LSX) chuẩn ISO CM-PR01-F01 xuống xưởng.
                 </p>
 
-                <button
-                  disabled={!canApprove || selectedOrderIds.length === 0}
-                  onClick={handleApprove}
-                  className={`w-full py-2.5 px-4 rounded text-xs font-extrabold flex items-center justify-center gap-2 transition-all ${
-                    canApprove && selectedOrderIds.length > 0
-                      ? 'bg-amber-400 hover:bg-amber-500 text-slate-950 shadow-md cursor-pointer'
-                      : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                  }`}
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  <span>XÁC NHẬN PHÊ DUYỆT TRIỂN KHAI ({selectedOrderIds.length} XE)</span>
-                </button>
+                <div className="space-y-2">
+                  <button
+                    disabled={!canApprove || selectedOrderIds.length === 0}
+                    onClick={handleApprove}
+                    className={`w-full py-2.5 px-4 rounded text-xs font-extrabold flex items-center justify-center gap-2 transition-all ${
+                      canApprove && selectedOrderIds.length > 0
+                        ? 'bg-amber-400 hover:bg-amber-500 text-slate-950 shadow-md cursor-pointer'
+                        : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                    }`}
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>XÁC NHẬN PHÊ DUYỆT TRIỂN KHAI ({selectedOrderIds.length} XE)</span>
+                  </button>
+
+                  {selectedOrders.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setPrintingOrder(selectedOrders[0])}
+                      className="w-full py-2 px-3 rounded text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>In Lệnh SX Chuẩn CM-PR01-F01 ({selectedOrders[0].id})</span>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -2221,6 +2440,13 @@ export const SmartScheduling: React.FC<SmartSchedulingProps> = ({
           </div>
         </div>
       )}
+
+      {/* MODAL IN LỆNH SẢN XUẤT CHUẨN ISO CM-PR01-F01 */}
+      <ProductionOrderPrintModal
+        order={printingOrder}
+        isOpen={!!printingOrder}
+        onClose={() => setPrintingOrder(null)}
+      />
     </div>
   );
 };

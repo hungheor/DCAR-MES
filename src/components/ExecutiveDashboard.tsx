@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   OrderItem,
   CRPWorkcenter,
@@ -13,6 +13,7 @@ import {
   REWORK_STATS_SUMMARY,
   REWORK_TEAM_BREAKDOWN,
   EXECUTIVE_MEETING_KPIS,
+  INITIAL_COMPLETED_ARCHIVE_ORDERS,
 } from '../data/mockData';
 import {
   Layers,
@@ -38,7 +39,13 @@ import {
   ExternalLink,
   PieChart,
   BarChart2,
+  Archive,
+  Printer,
+  Search,
+  FileText,
 } from 'lucide-react';
+import { ProductionOrderPrintModal } from './ProductionOrderPrintModal';
+import { DailyTeamProductivityReport } from './DailyTeamProductivityReport';
 
 interface ExecutiveDashboardProps {
   orders: OrderItem[];
@@ -48,6 +55,7 @@ interface ExecutiveDashboardProps {
   onNavigateTab: (tab: string) => void;
   onSelectOrder: (order: OrderItem) => void;
   onNavigate?: (target: NavigationTarget) => void;
+  initialSubView?: string;
 }
 
 export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
@@ -58,15 +66,48 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   onNavigateTab,
   onSelectOrder,
   onNavigate,
+  initialSubView,
 }) => {
   const [selectedPeriod, setSelectedPeriod] = useState<ReportFilterPeriod>('WEEK_44');
-  const [activeSection, setActiveSection] = useState<'MEETING' | 'QUALITY_PARETO' | 'CRP'>('MEETING');
+  const [activeSection, setActiveSection] = useState<'MEETING' | 'QUALITY_PARETO' | 'CRP' | 'DAILY_PRODUCTIVITY' | 'COMPLETED_ARCHIVE'>(
+    (initialSubView as any) || 'MEETING'
+  );
+
+  useEffect(() => {
+    if (initialSubView) {
+      setActiveSection(initialSubView as any);
+    }
+  }, [initialSubView]);
 
   // Chart type toggles (Cột / Đường / Tròn)
   const [healthChartType, setHealthChartType] = useState<'BAR' | 'LINE' | 'PIE'>('BAR');
   const [leadTimeChartType, setLeadTimeChartType] = useState<'BAR' | 'LINE' | 'PIE'>('BAR');
   const [paretoChartType, setParetoChartType] = useState<'PARETO_COMBO' | 'BAR' | 'PIE'>('PARETO_COMBO');
   const [clusterChartType, setClusterChartType] = useState<'BAR' | 'LINE' | 'PIE'>('BAR');
+
+  // Completed Orders Archive State
+  const [completedOrders, setCompletedOrders] = useState<OrderItem[]>(() => {
+    const fromProps = orders.filter((o) => o.status === 'COMPLETED');
+    const ids = new Set(fromProps.map((o) => o.id));
+    const combined = [...fromProps];
+    INITIAL_COMPLETED_ARCHIVE_ORDERS.forEach((item) => {
+      if (!ids.has(item.id)) {
+        combined.push(item);
+      }
+    });
+    return combined;
+  });
+  const [archiveSearch, setArchiveSearch] = useState<string>('');
+  const [archiveTypeFilter, setArchiveTypeFilter] = useState<'ALL' | 'G' | 'T' | 'B'>('ALL');
+
+  // Print modal state
+  const [printOrder, setPrintOrder] = useState<OrderItem | null>(null);
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState<boolean>(false);
+
+  const handleOpenPrint = (ord: OrderItem) => {
+    setPrintOrder(ord);
+    setIsPrintModalOpen(true);
+  };
 
   const periodData = EXECUTIVE_MEETING_KPIS[selectedPeriod] || EXECUTIVE_MEETING_KPIS['WEEK_44'];
 
@@ -146,7 +187,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
       <div className="flex items-center gap-2 border-b border-slate-200 overflow-x-auto">
         <button
           onClick={() => setActiveSection('MEETING')}
-          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
+          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             activeSection === 'MEETING'
               ? 'border-slate-900 text-slate-900 font-bold'
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -158,19 +199,19 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
 
         <button
           onClick={() => setActiveSection('QUALITY_PARETO')}
-          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
+          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             activeSection === 'QUALITY_PARETO'
               ? 'border-slate-900 text-slate-900 font-bold'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
           <BarChart3 className="w-4 h-4 text-rose-500" />
-          <span>02. Báo Cáo Chất Lượng &amp; Biểu Đồ Pareto 80/20 (Giờ Sửa Hàng)</span>
+          <span>02. Báo Cáo Chất Lượng &amp; Biểu Đồ Pareto 80/20</span>
         </button>
 
         <button
           onClick={() => setActiveSection('CRP')}
-          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${
+          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             activeSection === 'CRP'
               ? 'border-slate-900 text-slate-900 font-bold'
               : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -178,6 +219,36 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
         >
           <Layers className="w-4 h-4 text-indigo-500" />
           <span>03. Tải Trọng Năng Lực 6 Xưởng &amp; 95 Thợ (CRP)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSection('DAILY_PRODUCTIVITY')}
+          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+            activeSection === 'DAILY_PRODUCTIVITY'
+              ? 'border-amber-500 text-slate-900 font-bold bg-amber-50/50'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <TrendingUp className="w-4 h-4 text-amber-500" />
+          <span>04. Báo Cáo Năng Suất Theo Ngày (17 Tổ)</span>
+          <span className="font-mono text-[10px] bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded font-bold">
+            Mới
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveSection('COMPLETED_ARCHIVE')}
+          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+            activeSection === 'COMPLETED_ARCHIVE'
+              ? 'border-emerald-600 text-emerald-950 font-bold bg-emerald-50/50'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Archive className="w-4 h-4 text-emerald-600" />
+          <span>05. Kho Lưu Trữ Đơn Hoàn Thành</span>
+          <span className="font-mono text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-bold">
+            {completedOrders.length} xe
+          </span>
         </button>
       </div>
 
@@ -637,70 +708,13 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
                 </div>
               )}
 
-              {/* Warning for unstable orders with direct clickable links */}
-              <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-lg text-xs space-y-1.5 shadow-2xs">
-                <div className="flex items-center gap-1.5 font-bold text-amber-900">
-                  <AlertTriangle className="w-4 h-4 text-amber-600" />
-                  <span>Chỉ Đạo Nóng Từ Ban Giám Đốc Cho Tuần Này (Click để xử lý):</span>
-                </div>
-                <p className="text-slate-800 text-[11px] leading-relaxed">
-                  Tập trung ưu tiên cao độ cho đơn{' '}
-                  <button
-                    onClick={() => {
-                      if (onNavigate) {
-                        onNavigate({
-                          tab: 'orders',
-                          subView: 'JOURNEY_TRACKING',
-                          orderId: 'B2610002',
-                          sourceDesc: 'Chỉ đạo Ban Giám Đốc: Đơn B2610002',
-                        });
-                      } else {
-                        onNavigateTab('orders');
-                      }
-                    }}
-                    className="font-bold underline text-rose-800 hover:text-rose-950 bg-rose-100/70 px-1 rounded cursor-pointer"
-                  >
-                    B2610002 (Bảo hành VIP - hạn 04/11) ↗
-                  </button>{' '}
-                  và đơn{' '}
-                  <button
-                    onClick={() => {
-                      if (onNavigate) {
-                        onNavigate({
-                          tab: 'orders',
-                          subView: 'JOURNEY_TRACKING',
-                          orderId: 'G2610023',
-                          sourceDesc: 'Chỉ đạo Ban Giám Đốc: Đơn G2610023',
-                        });
-                      } else {
-                        onNavigateTab('orders');
-                      }
-                    }}
-                    className="font-bold underline text-amber-900 hover:text-amber-950 bg-amber-100/80 px-1 rounded cursor-pointer"
-                  >
-                    G2610023 (Tour Liên Minh Sài Gòn - hạn 15/11) ↗
-                  </button>
-                  . Yêu cầu Quản đốc Cụm 4 giải phóng ngay xe tại{' '}
-                  <button
-                    onClick={() => {
-                      if (onNavigate) {
-                        onNavigate({
-                          tab: 'scheduling',
-                          subView: 'DAILY_DISPATCH',
-                          teamId: 'T16',
-                          clusterId: 4,
-                          sourceDesc: 'Chỉ đạo BGĐ: Điều phối Tổ 16',
-                        });
-                      } else {
-                        onNavigateTab('scheduling');
-                      }
-                    }}
-                    className="font-bold underline text-indigo-900 hover:text-indigo-950 bg-indigo-100 px-1 rounded cursor-pointer"
-                  >
-                    Tổ 16 (Lắp Ghế VIP Điện) ↗
-                  </button>
-                  .
-                </p>
+              {/* Health Distribution Footer Indicator */}
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-mono text-slate-500">
+                <span>Dữ liệu: Kiểm định 17 tổ chuyền sản xuất</span>
+                <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>OTD chuẩn đạt {periodData.otdRatePercent}%</span>
+                </span>
               </div>
             </div>
 
@@ -1757,6 +1771,302 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* ======================================================== */}
+      {/* TAB 4: BÁO CÁO NĂNG SUẤT THEO NGÀY CỦA 17 TỔ SẢN XUẤT    */}
+      {/* ======================================================== */}
+      {activeSection === 'DAILY_PRODUCTIVITY' && (
+        <DailyTeamProductivityReport
+          onNavigateTab={onNavigateTab}
+          onSelectOrder={onSelectOrder}
+          onNavigate={onNavigate}
+          orders={orders}
+        />
+      )}
+
+      {/* ======================================================== */}
+      {/* TAB 5: KHO LƯU TRỮ ĐƠN HÀNG ĐÃ HOÀN THÀNH (ARCHIVE)      */}
+      {/* ======================================================== */}
+      {activeSection === 'COMPLETED_ARCHIVE' && (
+        <div className="space-y-6">
+          {/* Top KPI Cards for Archive */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-2xs space-y-1">
+              <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
+                <span>Tổng Xe Đã Xuất Xưởng</span>
+                <Archive className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-extrabold text-slate-900 font-mono tabular-nums">
+                  {completedOrders.length}
+                </span>
+                <span className="text-xs text-slate-500">xe thương mại</span>
+              </div>
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-mono text-slate-600">
+                <span>Hồ sơ lưu trữ:</span>
+                <span className="text-emerald-700 font-bold">100% đầy đủ hồ sơ ISO</span>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-2xs space-y-1">
+              <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
+                <span>Tỷ Lệ Giao Đúng Hạn (OTD)</span>
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-extrabold text-emerald-700 font-mono tabular-nums">
+                  96.2%
+                </span>
+                <span className="text-xs text-slate-500">cam kết giao</span>
+              </div>
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-mono text-slate-600">
+                <span>Mục tiêu BGĐ: 95%</span>
+                <span className="text-emerald-700 font-bold">+1.2% vượt chuẩn</span>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-2xs space-y-1">
+              <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
+                <span>Lead Time Thực Tế Bình Quân</span>
+                <Timer className="w-4 h-4 text-indigo-600" />
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-extrabold text-indigo-700 font-mono tabular-nums">
+                  12.9
+                </span>
+                <span className="text-xs text-slate-500">ngày / xe</span>
+              </div>
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-mono text-slate-600">
+                <span>Chuẩn định mức: 14 ngày</span>
+                <span className="text-emerald-700 font-bold">Rút ngắn 1.1 ngày</span>
+              </div>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-2xs space-y-1">
+              <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
+                <span>Kiểm Định KCS 120 Điểm</span>
+                <ShieldCheck className="w-4 h-4 text-blue-600" />
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-extrabold text-blue-700 font-mono tabular-nums">
+                  100%
+                </span>
+                <span className="text-xs text-slate-500">đạt chuẩn xuất xưởng</span>
+              </div>
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-mono text-slate-600">
+                <span>Thử mưa 5 bar</span>
+                <span className="text-emerald-700 font-bold">100% đạt tem Dcar</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Filter & Search Bar for Completed Orders */}
+          <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Tìm theo Mã LSX, Khách hàng, Số khung (VIN), Hợp đồng..."
+                  value={archiveSearch}
+                  onChange={(e) => setArchiveSearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-slate-900 font-sans"
+                />
+              </div>
+
+              {/* Order Type Filter (G / T / B) */}
+              <div className="flex items-center gap-1.5 text-xs">
+                <span className="text-slate-500 font-semibold text-[11px] mr-1">Loại Đơn:</span>
+                <button
+                  onClick={() => setArchiveTypeFilter('ALL')}
+                  className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors cursor-pointer ${
+                    archiveTypeFilter === 'ALL'
+                      ? 'bg-slate-900 text-white font-bold'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  Tất cả ({completedOrders.length})
+                </button>
+                <button
+                  onClick={() => setArchiveTypeFilter('G')}
+                  className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors cursor-pointer ${
+                    archiveTypeFilter === 'G'
+                      ? 'bg-sky-600 text-white font-bold'
+                      : 'bg-sky-50 text-sky-800 hover:bg-sky-100'
+                  }`}
+                >
+                  Đơn Bán (G)
+                </button>
+                <button
+                  onClick={() => setArchiveTypeFilter('T')}
+                  className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors cursor-pointer ${
+                    archiveTypeFilter === 'T'
+                      ? 'bg-indigo-600 text-white font-bold'
+                      : 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
+                  }`}
+                >
+                  Trưng Bày (T)
+                </button>
+                <button
+                  onClick={() => setArchiveTypeFilter('B')}
+                  className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors cursor-pointer ${
+                    archiveTypeFilter === 'B'
+                      ? 'bg-amber-600 text-white font-bold'
+                      : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+                  }`}
+                >
+                  Bảo Hành (B)
+                </button>
+              </div>
+            </div>
+
+            {/* Completed Orders Data Table */}
+            <div className="border border-slate-200 rounded-lg overflow-x-auto shadow-2xs">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                    <th className="py-2.5 px-3">Mã LSX &amp; Loại</th>
+                    <th className="py-2.5 px-3">Khách Hàng &amp; Hợp Đồng</th>
+                    <th className="py-2.5 px-3">Dòng Xe &amp; Số Khung (VIN)</th>
+                    <th className="py-2.5 px-3">Ngày Tiếp Nhận</th>
+                    <th className="py-2.5 px-3">Ngày Xuất Xưởng</th>
+                    <th className="py-2.5 px-3 text-center">Lead Time</th>
+                    <th className="py-2.5 px-3 text-center">KCS 120 Điểm</th>
+                    <th className="py-2.5 px-3 text-right">Thao Tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {completedOrders
+                    .filter((ord) => {
+                      const matchType = archiveTypeFilter === 'ALL' || ord.orderType === archiveTypeFilter;
+                      const q = archiveSearch.toLowerCase();
+                      const matchSearch =
+                        !q ||
+                        ord.id.toLowerCase().includes(q) ||
+                        ord.customerName.toLowerCase().includes(q) ||
+                        ord.conversionVersion.toLowerCase().includes(q) ||
+                        (ord.vinNumber && ord.vinNumber.toLowerCase().includes(q)) ||
+                        (ord.contractRef && ord.contractRef.toLowerCase().includes(q));
+                      return matchType && matchSearch;
+                    })
+                    .map((ord) => {
+                      return (
+                        <tr key={ord.id} className="hover:bg-slate-50/80 transition-colors group">
+                          {/* Mã LSX & Badge Loại */}
+                          <td className="py-3 px-3">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`w-5 h-5 rounded text-[10px] font-black flex items-center justify-center shrink-0 ${
+                                  ord.orderType === 'G'
+                                    ? 'bg-sky-100 text-sky-800 border border-sky-300'
+                                    : ord.orderType === 'T'
+                                    ? 'bg-indigo-100 text-indigo-800 border border-indigo-300'
+                                    : 'bg-amber-100 text-amber-800 border border-amber-300'
+                                }`}
+                              >
+                                {ord.orderType}
+                              </span>
+                              <span className="font-mono font-bold text-slate-900 block">
+                                {ord.id}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 block font-mono pl-6.5">
+                              {ord.orderType === 'G' ? 'Đơn Bán' : ord.orderType === 'T' ? 'Trưng Bày' : 'Bảo Hành'}
+                            </span>
+                          </td>
+
+                          {/* Khách hàng & HĐ */}
+                          <td className="py-3 px-3">
+                            <span className="font-bold text-slate-900 block truncate max-w-xs">
+                              {ord.customerName}
+                            </span>
+                            <span className="font-mono text-[10px] text-slate-500 block">
+                              HĐ: {ord.contractRef || 'HĐ-GMG-2026'}
+                            </span>
+                          </td>
+
+                          {/* Dòng xe & Số khung */}
+                          <td className="py-3 px-3">
+                            <span className="font-semibold text-slate-800 block">
+                              {ord.conversionVersion}
+                            </span>
+                            <div className="flex items-center gap-2 text-[10px] font-mono text-slate-500">
+                              <span>VIN: <strong>{ord.vinNumber || '65541'}</strong></span>
+                              <span>·</span>
+                              <span>Màu: {ord.exteriorColor.split('(')[0]}</span>
+                            </div>
+                          </td>
+
+                          {/* Ngày nhận */}
+                          <td className="py-3 px-3 font-mono text-slate-600 text-[11px]">
+                            {ord.receivedDate}
+                          </td>
+
+                          {/* Ngày xuất xưởng */}
+                          <td className="py-3 px-3">
+                            <span className="font-mono font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded text-[11px] block text-center">
+                              {ord.completedDate || ord.dueDate}
+                            </span>
+                          </td>
+
+                          {/* Lead Time */}
+                          <td className="py-3 px-3 text-center">
+                            <span className="font-mono font-bold text-indigo-900 block text-xs">
+                              {ord.actualLeadTimeDays || 13} ngày
+                            </span>
+                            <span className="text-[10px] text-emerald-700 font-semibold block">
+                              Chuẩn {ord.standardLeadTimeDays || 14}d
+                            </span>
+                          </td>
+
+                          {/* KCS 120 Điểm */}
+                          <td className="py-3 px-3 text-center">
+                            <span className="inline-flex items-center gap-1 font-mono text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                              <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                              <span>120/120 ĐẠT</span>
+                            </span>
+                          </td>
+
+                          {/* Actions */}
+                          <td className="py-3 px-3 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {/* NÚT IN LỆNH SẢN XUẤT THEO BIỂU MẪU CM-PR01-F01 */}
+                              <button
+                                onClick={() => handleOpenPrint(ord)}
+                                className="px-2.5 py-1 text-[11px] font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 rounded shadow-2xs flex items-center gap-1 cursor-pointer transition-colors"
+                                title="In Lệnh Sản Xuất chính thức (Biểu mẫu CM-PR01-F01)"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                                <span>In Lệnh SX</span>
+                              </button>
+
+                              {/* Xem hồ sơ chi tiết */}
+                              <button
+                                onClick={() => onSelectOrder(ord)}
+                                className="px-2 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded transition-colors cursor-pointer"
+                                title="Xem hồ sơ chi tiết đơn hàng"
+                              >
+                                Chi Tiết
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Production Order Print Modal (Biểu mẫu CM-PR01-F01) */}
+      <ProductionOrderPrintModal
+        order={printOrder}
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+      />
     </div>
   );
 };
+
