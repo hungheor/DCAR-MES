@@ -791,6 +791,7 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
           orders={orders}
           onSelectOrder={onSelectOrder}
           onNavigate={onNavigate}
+          onUpdateOrder={onUpdateOrder}
           isReadOnly={isReadOnly}
         />
       )}

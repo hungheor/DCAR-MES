@@ -43,6 +43,8 @@ import {
   generateStageCycleNormsCsv,
   generateCompletedOrdersCsv,
   generateTeamProgressCsv,
+  generateTeamsFlowCsv,
+  initGoogleSheetTeams,
 } from '../services/googleSheetService';
 import {
   OrderItem,
@@ -231,6 +233,28 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
   const handleDownloadProgressCsv = () => {
     const csv = generateTeamProgressCsv(orders);
     downloadCsvFile(`TheoDoi_TienDo_CacTo_${new Date().toISOString().split('T')[0]}.csv`, csv);
+  };
+
+  const handleDownloadTeamsFlowCsv = () => {
+    const csv = generateTeamsFlowCsv(orders, teamCapacity);
+    downloadCsvFile(`ThongTin_17To_LuuDo_Ford_Solati_${new Date().toISOString().split('T')[0]}.csv`, csv);
+  };
+
+  const handleInitTeamsFlowSheet = async () => {
+    setIsSyncing(true);
+    setStatusMessage('Đang khởi tạo cấu trúc 17 Tổ theo lưu đồ xe nhỏ Ford/Solati lên Google Sheet...');
+    try {
+      const res = await initGoogleSheetTeams(orders, teamCapacity);
+      setStatusMessage(res.message);
+      if (res.success) {
+        setIsConnected(true);
+        setLastSyncTime(new Date().toLocaleTimeString('vi-VN'));
+      }
+    } catch (err: any) {
+      setStatusMessage(`Lỗi khởi tạo 17 tổ: ${err.message}`);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   // Nhập file CSV trực tiếp từ máy tính
@@ -988,6 +1012,39 @@ function seedInitialMESData(ss) {
                     <Download className="w-3.5 h-3.5 text-blue-200" />
                     <span>Tải TheoDoi_TienDo_CacTo.csv</span>
                   </button>
+                </div>
+
+                {/* File 6: Thông Tin 17 Tổ Theo Lưu Đồ Ford/Solati */}
+                <div className="bg-white border-2 border-amber-300 rounded-lg p-4 space-y-3 shadow-sm hover:border-amber-400 transition-all flex flex-col justify-between bg-amber-50/20">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-black px-2 py-0.5 bg-amber-400 text-slate-950 rounded uppercase">
+                        BẢNG 6 · LƯU ĐỒ 17 TỔ
+                      </span>
+                      <span className="text-[10px] text-amber-700 font-mono font-bold">Ford &amp; Solati</span>
+                    </div>
+                    <h4 className="font-bold text-sm text-slate-900">ThongTin_17To_LuuDo.csv</h4>
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      Dữ liệu chính xác 17 tổ (T01 → T17) theo lưu đồ xưởng, nguồn đầu vào, điểm đến đầu ra, nhãn nhánh kỹ thuật, định mức năng lực và tiến độ WIP thực tế làm cơ sở lấy &amp; lưu trữ dữ liệu.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <button
+                      onClick={handleDownloadTeamsFlowCsv}
+                      className="w-full py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs text-xs"
+                    >
+                      <Download className="w-3.5 h-3.5 text-slate-950" />
+                      <span>Tải ThongTin_17To_LuuDo.csv</span>
+                    </button>
+                    <button
+                      onClick={handleInitTeamsFlowSheet}
+                      disabled={isSyncing}
+                      className="w-full py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer text-[11px] disabled:opacity-50"
+                    >
+                      <Sparkles className="w-3 h-3 text-amber-400" />
+                      <span>Khởi Tạo Trực Tiếp Lên Google Sheet</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 

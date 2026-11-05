@@ -685,3 +685,213 @@ export function generateStageCycleNormsCsv(norms: StageCycleNorm[]): string {
 
   return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
 }
+
+/**
+ * Sơ đồ luồng kết nối 17 Tổ theo Lưu Đồ Xe Nhỏ Ford Transit & Solati
+ */
+export const FLOW_CONNECTIONS: Record<string, { inputs: string; outputs: string; role: string; targets: string[] }> = {
+  T01: {
+    role: 'Đầu Vào (Đỏ)',
+    inputs: 'Xe cơ sở Transit / Solati mới nhận',
+    outputs: 'T02 (Cơ Khí), T11 (Dán Phim), T15 (Lắp Ráp Hoàn Thiện)',
+    targets: ['T02', 'T11', 'T15'],
+  },
+  T02: {
+    role: 'Đầu Vào (Đỏ)',
+    inputs: 'T01 (Tháo Đồ)',
+    outputs: 'T08 (Mousse - Dựa Ngồi), T13 & T14 (Khung chân ghế), T14 & T15 (Khung trần)',
+    targets: ['T08', 'T13', 'T14', 'T15'],
+  },
+  T03: {
+    role: 'Đầu Vào (Đỏ)',
+    inputs: 'Gỗ tự nhiên & ván ép công nghiệp',
+    outputs: 'T05 (Nhựa), T06 (CPS), T10 (Bọc dán)',
+    targets: ['T05', 'T06', 'T10'],
+  },
+  T04: {
+    role: 'Đầu Vào (Đỏ)',
+    inputs: 'Cuộn da bò Ý, da công nghiệp VKC05',
+    outputs: 'T07 (May), T10 (Bọc dán - Nhánh Nội Thất)',
+    targets: ['T07', 'T10'],
+  },
+  T05: {
+    role: 'Bán Thành Phẩm',
+    inputs: 'T03 (Mộc)',
+    outputs: 'T09 (Sơn ốp gỗ), T10 (Bọc dán), T15 (Lắp Hoàn Thiện)',
+    targets: ['T09', 'T10', 'T15'],
+  },
+  T06: {
+    role: 'Bán Thành Phẩm',
+    inputs: 'T03 (Mộc)',
+    outputs: 'T09 (Sơn ốp gỗ), T10 (Bọc dán)',
+    targets: ['T09', 'T10'],
+  },
+  T07: {
+    role: 'Bán Thành Phẩm',
+    inputs: 'T04 (Cắt)',
+    outputs: 'T13 (Lắp Ráp Ghế)',
+    targets: ['T13'],
+  },
+  T08: {
+    role: 'Bán Thành Phẩm',
+    inputs: 'T02 (Cơ Khí - Nhánh Dựa Ngồi)',
+    outputs: 'T13 (Lắp Ráp Ghế)',
+    targets: ['T13'],
+  },
+  T09: {
+    role: 'Bán Thành Phẩm',
+    inputs: 'T05 (Nhựa), T06 (CPS)',
+    outputs: 'T10 (Bọc dán), T13 (Lắp Ghế), T14 (Lắp Kỹ Thuật)',
+    targets: ['T10', 'T13', 'T14'],
+  },
+  T10: {
+    role: 'Bán Thành Phẩm',
+    inputs: 'T04 (Nội thất), T05, T06, T09',
+    outputs: 'T13 (Lắp Ghế), T14 (Lắp Kỹ Thuật), T15 (Lắp Hoàn Thiện)',
+    targets: ['T13', 'T14', 'T15'],
+  },
+  T11: {
+    role: 'Điện Phụ Trợ',
+    inputs: 'T01 (Tháo Đồ)',
+    outputs: 'T15 (Lắp Hoàn Thiện - Nhánh Dán Kính)',
+    targets: ['T15'],
+  },
+  T12: {
+    role: 'Điện Phụ Trợ',
+    inputs: 'Dây điện chuyên dụng & tấm tản quang laser',
+    outputs: 'T14 (Lắp Kỹ Thuật), T15 (Lắp Hoàn Thiện)',
+    targets: ['T14', 'T15'],
+  },
+  T13: {
+    role: 'Lắp Ráp Tổng Thành',
+    inputs: 'T02 (Chân ghế), T07 (Áo may), T08 (Mút), T09 (Ốp gỗ), T10 (Bọc da)',
+    outputs: 'T14 (Lắp Kỹ Thuật), T15 (Lắp Ráp Hoàn Thiện, Audio2)',
+    targets: ['T14', 'T15'],
+  },
+  T14: {
+    role: 'Lắp Ráp Tổng Thành',
+    inputs: 'T02 (Khung trần & Chân ghế), T09, T10, T12, T13',
+    outputs: 'T15 (Lắp Ráp Hoàn Thiện, Audio2)',
+    targets: ['T15'],
+  },
+  T15: {
+    role: 'Hội Tụ Trung Tâm',
+    inputs: 'T01, T02 (Khung trần), T05, T10, T11 (Dán kính), T12, T13, T14',
+    outputs: 'T16 (Vệ sinh)',
+    targets: ['T16'],
+  },
+  T16: {
+    role: 'Hoàn Thiện',
+    inputs: 'T15 (Lắp Ráp Hoàn Thiện, Audio2)',
+    outputs: 'T17 (Dán Tem)',
+    targets: ['T17'],
+  },
+  T17: {
+    role: 'Nghiệm Thu KCS',
+    inputs: 'T16 (Vệ sinh)',
+    outputs: 'Xuất xưởng bàn giao kinh doanh & Lưu trữ',
+    targets: ['COMPLETED'],
+  },
+};
+
+/**
+ * Xuất dữ liệu bảng Thông Tin 17 Tổ theo Lưu Đồ Xe Nhỏ Ford Transit & Solati
+ * Dùng làm cơ sở nạp vào Google Sheet để lấy dữ liệu và lưu trữ tiến độ sản xuất
+ */
+export function generateTeamsFlowCsv(
+  orders: OrderItem[],
+  teams: TeamCapacityStaffing[] = INITIAL_TEAM_CAPACITY_STAFFING
+): string {
+
+  const headers = [
+    'Mã Tổ',
+    'Tên Tổ (Lưu Đồ Ford/Solati)',
+    'Vai Trò Trên Lưu Đồ',
+    'Cụm Phân Nhóm',
+    'Nguồn Đầu Vào (Inputs)',
+    'Điểm Đến Đầu Ra (Outputs)',
+    'Tổ Trưởng Phụ Trách',
+    'Số Thợ',
+    'Định Mức (Xe/Ngày)',
+    'Giờ ĐM/Xe',
+    'Số Xe Đang Gia Công (Active WIP)',
+    'Danh Sách Đơn Tại Trạm',
+    'Tình Trạng Tải',
+    'Ghi Chú Kỹ Thuật Lưu Đồ',
+  ];
+
+  const rows = teams.map((t) => {
+    const conn = FLOW_CONNECTIONS[t.teamId] || {
+      role: 'Công đoạn sản xuất',
+      inputs: 'Khởi tạo quy trình',
+      outputs: 'Trạm tiếp theo',
+    };
+
+    const currentOrders = orders.filter(
+      (o) =>
+        o.status !== 'COMPLETED' &&
+        ((o.activeTeamIds && o.activeTeamIds.includes(t.teamId)) || o.currentTeamId === t.teamId)
+    );
+    const orderCodes = currentOrders.map((o) => o.id).join('; ') || 'Không có xe';
+    const isOverload = currentOrders.length > t.stdDailyCapacityVehicles * 1.5;
+    const isBottleneck = ['T07', 'T10', 'T13', 'T15'].includes(t.teamId);
+    const statusText = isOverload
+      ? 'QUÁ TẢI (NGHẼN)'
+      : isBottleneck
+      ? 'TRẠM TRỌNG YẾU (TIÊU CHUẨN)'
+      : currentOrders.length === 0
+      ? 'CHỜ XE'
+      : 'BÌNH THƯỜNG';
+
+    return [
+      `"${t.teamId}"`,
+      `"${(t.teamName || '').replace(/"/g, '""')}"`,
+      `"${conn.role}"`,
+      `"Cụm ${t.clusterId}"`,
+      `"${conn.inputs}"`,
+      `"${conn.outputs}"`,
+      `"${(t.leadCraftsman || '').replace(/"/g, '""')}"`,
+      `"${t.headcount}"`,
+      `"${t.stdDailyCapacityVehicles}"`,
+      `"${t.stdHoursPerVehicle}"`,
+      `"${currentOrders.length}"`,
+      `"${orderCodes}"`,
+      `"${statusText}"`,
+      `"${(t.notes || '').replace(/"/g, '""')}"`,
+    ];
+  });
+
+  return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+}
+
+/**
+ * Khởi tạo bảng Thông Tin 17 Tổ Lưu Đồ Ford/Solati lên Google Sheet Web App
+ */
+export async function initGoogleSheetTeams(
+  orders: OrderItem[],
+  teams: TeamCapacityStaffing[] = INITIAL_TEAM_CAPACITY_STAFFING
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const res = await callSheetApi({
+      action: 'initTeams17Flow',
+      teams,
+      orders: orders.filter((o) => o.status !== 'COMPLETED'),
+      timestamp: new Date().toISOString(),
+    });
+    if (res && res.success) {
+      return {
+        success: true,
+        message: 'Đã khởi tạo thành công cấu trúc 17 Tổ trên Google Sheet!',
+      };
+    }
+    return {
+      success: false,
+      message: res?.message || 'Chưa ghi nhận được phản hồi từ Google Sheet.',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err.message || 'Lỗi kết nối khi khởi tạo Google Sheet 17 Tổ.',
+    };
+  }
+}
