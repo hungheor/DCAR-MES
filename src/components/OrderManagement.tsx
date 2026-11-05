@@ -581,13 +581,14 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
 
   // Step executions for currently selected tracking order
   const activeStepExecutions: OrderStepExecution[] = useMemo(() => {
+    if (!currentTrackingOrder) return [];
     if (currentTrackingOrder.stepExecutions && currentTrackingOrder.stepExecutions.length > 0) {
       return currentTrackingOrder.stepExecutions;
     }
     return createDefaultStepExecutions(
-      currentTrackingOrder.id,
-      currentTrackingOrder.currentStepId,
-      currentTrackingOrder.receivedDate
+      currentTrackingOrder.id || 'ORDER',
+      currentTrackingOrder.currentStepId || 'S01',
+      currentTrackingOrder.receivedDate || currentTrackingOrder.scheduledStartDate || '2026-10-28'
     );
   }, [currentTrackingOrder]);
 

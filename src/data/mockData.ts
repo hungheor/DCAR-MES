@@ -854,6 +854,45 @@ export const STEP_ROUTINGS: StepRouting[] = [
   },
 ];
 
+export const parseSafeDate = (raw?: string | null, fallbackStr: string = '2026-10-28'): Date => {
+  if (!raw || typeof raw !== 'string' || !raw.trim()) {
+    return new Date(fallbackStr);
+  }
+  const str = raw.trim();
+
+  // Xử lý định dạng ngày tháng tiếng Việt: DD/MM/YYYY hoặc DD-MM-YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10) - 1;
+    const year = parseInt(dmyMatch[3], 10);
+    const d = new Date(year, month, day);
+    if (!isNaN(d.getTime())) return d;
+  }
+
+  // Xử lý chuẩn ISO / YYYY-MM-DD
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    return parsed;
+  }
+
+  return new Date(fallbackStr);
+};
+
+export const formatSafeIso = (d: Date | string | null | undefined, fallback: string = '2026-10-28'): string => {
+  if (!d) return fallback;
+  if (typeof d === 'string') {
+    const parsed = parseSafeDate(d, fallback);
+    return isNaN(parsed.getTime()) ? fallback : parsed.toISOString().split('T')[0];
+  }
+  if (isNaN(d.getTime())) return fallback;
+  try {
+    return d.toISOString().split('T')[0];
+  } catch {
+    return fallback;
+  }
+};
+
 export const createDefaultStepExecutions = (
   orderId: string,
   currentStepId: string = 'S01',
@@ -861,14 +900,14 @@ export const createDefaultStepExecutions = (
   customDelays: Record<string, { delayDays: number; reason: string }> = {}
 ): OrderStepExecution[] => {
   const currentStepNum = parseInt(currentStepId.replace('S', ''), 10) || 1;
-  const baseDate = new Date(receivedDate);
+  const baseDate = parseSafeDate(receivedDate, '2026-10-28');
 
   return STEP_ROUTINGS.map((step) => {
     const sNum = parseInt(step.stepId.replace('S', ''), 10);
     const planStart = new Date(baseDate);
-    planStart.setDate(planStart.getDate() + step.dayStart - 1);
+    planStart.setDate(planStart.getDate() + (step.dayStart - 1));
     const planEnd = new Date(baseDate);
-    planEnd.setDate(planEnd.getDate() + step.dayEnd - 1);
+    planEnd.setDate(planEnd.getDate() + (step.dayEnd - 1));
 
     const isCustomDelayed = !!customDelays[step.stepId];
     const isDone = sNum < currentStepNum;
@@ -885,7 +924,7 @@ export const createDefaultStepExecutions = (
 
     const actualEnd = new Date(planEnd);
     if (isCustomDelayed) {
-      actualEnd.setDate(actualEnd.getDate() + customDelays[step.stepId].delayDays);
+      actualEnd.setDate(actualEnd.getDate() + (customDelays[step.stepId].delayDays || 1));
     }
 
     return {
@@ -898,14 +937,14 @@ export const createDefaultStepExecutions = (
       status,
       standardHours: Math.round(step.standardDurationDays * 8),
       actualHours: isCustomDelayed
-        ? Math.round((step.standardDurationDays + customDelays[step.stepId].delayDays) * 8)
+        ? Math.round((step.standardDurationDays + (customDelays[step.stepId].delayDays || 1)) * 8)
         : isDone
         ? Math.round(step.standardDurationDays * 8)
         : undefined,
-      plannedStartDate: planStart.toISOString().split('T')[0],
-      plannedCompletionDate: planEnd.toISOString().split('T')[0],
+      plannedStartDate: formatSafeIso(planStart, '2026-10-28'),
+      plannedCompletionDate: formatSafeIso(planEnd, '2026-11-10'),
       actualCompletionDate: isDone
-        ? planEnd.toISOString().split('T')[0]
+        ? formatSafeIso(planEnd, '2026-11-10')
         : isCustomDelayed
         ? undefined
         : undefined,

@@ -53,6 +53,7 @@ import {
 import {
   INITIAL_TEAM_CAPACITY_STAFFING,
   INITIAL_STAGE_CYCLE_NORMS,
+  formatSafeIso,
 } from '../data/mockData';
 
 interface GoogleSheetSyncModalProps {
@@ -270,10 +271,10 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
                 exteriorColor: cols[6] || 'Đen Ánh Kim',
                 interiorColor: cols[7] || 'Da Bò Ý',
                 options: [],
-                receivedDate: cols[8] || '2026-10-28',
-                dueDate: cols[9] || '2026-11-16',
-                scheduledStartDate: cols[10] || '2026-11-09',
-                scheduledEndDate: cols[11] || '2026-11-23',
+                receivedDate: formatSafeIso(cols[8], '2026-10-28'),
+                dueDate: formatSafeIso(cols[9], '2026-11-16'),
+                scheduledStartDate: formatSafeIso(cols[10], '2026-11-09'),
+                scheduledEndDate: formatSafeIso(cols[11], '2026-11-23'),
                 status: (cols[12] || 'IN_PRODUCTION') as any,
                 progress: Number(cols[13] || 50),
                 currentDay: 8,

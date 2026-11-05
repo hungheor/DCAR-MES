@@ -414,6 +414,21 @@ export const ProductionFlowDiagram: React.FC<ProductionFlowDiagramProps> = ({
   const getProximityDeliveryPalette = (dueDateStr: string, baseDateStr = '2026-11-02'): DeliveryColorPalette => {
     const base = new Date(baseDateStr).getTime();
     const due = new Date(dueDateStr).getTime();
+
+    if (isNaN(due)) {
+      return {
+        name: 'Xám (Chưa xác định)',
+        badgeBg: 'bg-slate-500/20 text-slate-300 border-slate-500/60',
+        badgeText: 'text-slate-400',
+        borderClass: 'border-slate-600 hover:border-slate-500',
+        cardBg: 'bg-slate-900/60 hover:bg-slate-900/80',
+        dotColor: 'bg-slate-500',
+        glowClass: 'shadow-none',
+        solidBg: 'bg-slate-600',
+        accentText: 'text-slate-300',
+      };
+    }
+
     const days = Math.ceil((due - base) / (1000 * 60 * 60 * 24));
 
     if (days <= 0) {

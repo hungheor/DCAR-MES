@@ -213,9 +213,11 @@ export function executeDynamicRescheduling(
   const updatedOrders = orders.map((o) => {
     if (o.id !== targetOrderId) return o;
 
-    const currentEnd = new Date(o.scheduledEndDate || o.dueDate);
-    currentEnd.setDate(currentEnd.getDate() + delayDays);
-    const newEndStr = currentEnd.toISOString().split('T')[0];
+    const rawEndDate = o.scheduledEndDate || o.dueDate || '2026-11-16';
+    const parsedEnd = new Date(rawEndDate);
+    const validEnd = isNaN(parsedEnd.getTime()) ? new Date('2026-11-16') : parsedEnd;
+    validEnd.setDate(validEnd.getDate() + delayDays);
+    const newEndStr = validEnd.toISOString().split('T')[0];
 
     const newProgress = Math.max(10, o.progress - 12); // Rework kéo tụt tiến độ
     const newDay = Math.max(1, o.currentDay - 1);

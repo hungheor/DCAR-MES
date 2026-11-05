@@ -180,6 +180,29 @@ export async function fetchSheetData(): Promise<{
       return { success: false, error: res.error };
     }
 
+    // Helper chuẩn hóa ngày từ Google Sheets (hỗ trợ DD/MM/YYYY, ISO, tiếng Việt)
+    const normalizeDateStr = (raw: any, fallback: string): string => {
+      if (!raw) return fallback;
+      const str = String(raw).trim();
+      if (!str) return fallback;
+      const m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if (m) {
+        const d = parseInt(m[1], 10);
+        const mo = parseInt(m[2], 10);
+        const y = parseInt(m[3], 10);
+        return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      }
+      const parsed = new Date(str);
+      if (!isNaN(parsed.getTime())) {
+        try {
+          return parsed.toISOString().split('T')[0];
+        } catch {
+          return fallback;
+        }
+      }
+      return fallback;
+    };
+
     // 1. Phân giải đơn hàng
     const rawOrders = (res.data && res.data.orders) || (res.orders) || [];
     const mappedOrders: OrderItem[] = rawOrders.map((r: any) => {
@@ -200,11 +223,11 @@ export async function fetchSheetData(): Promise<{
         exteriorColor: r['Màu Ngoại Thất'] || r.exteriorColor || 'Đen Ánh Kim',
         interiorColor: r['Màu Nội Thất'] || r.interiorColor || 'Da Bò Ý',
         options: r.options || [],
-        receivedDate: r['Ngày Tiếp Nhận'] || r['Ngày Nhận Xe'] || r.receivedDate || '2026-10-28',
-        dueDate: r['Hạn Giao Xe'] || r.dueDate || '2026-11-16',
+        receivedDate: normalizeDateStr(r['Ngày Tiếp Nhận'] || r['Ngày Nhận Xe'] || r.receivedDate, '2026-10-28'),
+        dueDate: normalizeDateStr(r['Hạn Giao Xe'] || r.dueDate, '2026-11-16'),
         // Kế hoạch bắt đầu và kết thúc do TPSX thiết lập
-        scheduledStartDate: r['Ngày KH Bắt Đầu'] || r['Kế Hoạch Bắt Đầu'] || r.scheduledStartDate || '2026-11-09',
-        scheduledEndDate: r['Ngày KH Hoàn Thành'] || r['Kế Hoạch Hoàn Thành'] || r.scheduledEndDate || r['Hạn Giao Xe'] || '2026-11-23',
+        scheduledStartDate: normalizeDateStr(r['Ngày KH Bắt Đầu'] || r['Kế Hoạch Bắt Đầu'] || r.scheduledStartDate, '2026-11-09'),
+        scheduledEndDate: normalizeDateStr(r['Ngày KH Hoàn Thành'] || r['Kế Hoạch Hoàn Thành'] || r.scheduledEndDate || r['Hạn Giao Xe'], '2026-11-23'),
         status: (r['Trạng Thái'] || r.status || 'IN_PRODUCTION') as any,
         progress: Number(r['Tiến Độ %'] || r['Tiến Độ'] || r.progress || 0),
         currentDay: Number(r['Ngày Chuyền'] || r.currentDay || 1),
