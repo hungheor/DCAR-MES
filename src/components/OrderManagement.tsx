@@ -11,7 +11,18 @@ import {
   NavigationTarget,
 } from '../types/mes';
 import { generateOrderId } from '../services/mesEngine';
-import { STEP_ROUTINGS, CLUSTERS, INITIAL_CONTRACTS, createDefaultStepExecutions } from '../data/mockData';
+import {
+  STEP_ROUTINGS,
+  CLUSTERS,
+  INITIAL_CONTRACTS,
+  INITIAL_TEAMS,
+  createDefaultStepExecutions,
+} from '../data/mockData';
+import {
+  generateCompletedOrdersCsv,
+  downloadCsvFile,
+  archiveCompletedOrderToSheet,
+} from '../services/googleSheetService';
 import { ProductionOrderPrintModal } from './ProductionOrderPrintModal';
 import { ProductionFlowDiagram } from './ProductionFlowDiagram';
 import {
@@ -49,6 +60,10 @@ import {
   Filter,
   ArrowUpRight,
   Workflow,
+  FileSpreadsheet,
+  Edit3,
+  PauseCircle,
+  Download,
 } from 'lucide-react';
 
 interface OrderManagementProps {
@@ -60,7 +75,7 @@ interface OrderManagementProps {
   selectedOrderModal: OrderItem | null;
   onCloseOrderModal: () => void;
   onNavigate?: (target: NavigationTarget) => void;
-  initialMode?: 'FLOW_DIAGRAM' | 'JOURNEY_TRACKING' | 'LIST' | 'CONTRACTS';
+  initialMode?: 'FLOW_DIAGRAM' | 'JOURNEY_TRACKING' | 'LIST' | 'CONTRACTS' | 'COMPLETED_ARCHIVE';
   initialOrderId?: string;
   initialContractId?: string;
   isReadOnly?: boolean;
@@ -81,13 +96,52 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
   isReadOnly = false,
 }) => {
   // Navigation Mode (defaults to FLOW_DIAGRAM for intuitive shop-floor overview)
-  const [managementMode, setManagementMode] = useState<'FLOW_DIAGRAM' | 'JOURNEY_TRACKING' | 'LIST' | 'CONTRACTS'>(
-    initialMode ?? 'FLOW_DIAGRAM'
-  );
+  const [managementMode, setManagementMode] = useState<
+    'FLOW_DIAGRAM' | 'JOURNEY_TRACKING' | 'LIST' | 'CONTRACTS' | 'COMPLETED_ARCHIVE'
+  >(initialMode ?? 'FLOW_DIAGRAM');
   const [trackingOrderId, setTrackingOrderId] = useState<string>(
     initialOrderId ?? (orders[4]?.id || 'B2610002')
   );
   const [printingOrder, setPrintingOrder] = useState<OrderItem | null>(null);
+
+  // Phân quyền Quản lý đơn hàng: TPSX (Production_Manager), NV Đơn Hàng (Order_Admin), Ban Giám Đốc (Executive)
+  const canManageOrders = !isReadOnly && (
+    currentRole === 'Order_Admin' ||
+    currentRole === 'Production_Manager' ||
+    currentRole === 'Executive'
+  );
+
+  // Edit Order Modal State (Chỉnh sửa thông tin đơn hàng & phân bổ các tổ SX song song)
+  const [editingOrder, setEditingOrder] = useState<OrderItem | null>(null);
+  const [editCustomerName, setEditCustomerName] = useState('');
+  const [editContactPerson, setEditContactPerson] = useState('');
+  const [editContactPhone, setEditContactPhone] = useState('');
+  const [editContractRef, setEditContractRef] = useState('');
+  const [editBaseModel, setEditBaseModel] = useState('');
+  const [editConversionVersion, setEditConversionVersion] = useState('');
+  const [editSeatCapacity, setEditSeatCapacity] = useState<number>(11);
+  const [editExteriorColor, setEditExteriorColor] = useState('');
+  const [editInteriorColor, setEditInteriorColor] = useState('');
+  const [editReceivedDate, setEditReceivedDate] = useState('');
+  const [editDueDate, setEditDueDate] = useState('');
+  const [editScheduledStartDate, setEditScheduledStartDate] = useState('');
+  const [editScheduledEndDate, setEditScheduledEndDate] = useState('');
+  const [editStatus, setEditStatus] = useState<OrderStatus>('IN_PRODUCTION');
+  const [editPriorityLevel, setEditPriorityLevel] = useState<PriorityLevel>('P3_NORMAL');
+  const [editActiveTeamIds, setEditActiveTeamIds] = useState<string[]>([]);
+  const [editHoldReason, setEditHoldReason] = useState('');
+  const [editHoldDate, setEditHoldDate] = useState('');
+  const [editVinNumber, setEditVinNumber] = useState('');
+  const [editDeliveryLocation, setEditDeliveryLocation] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editOptions, setEditOptions] = useState<string[]>([]);
+
+  // Quick Status Transition Modal State (Chuyển đổi trạng thái, Treo đơn, Chờ giao, Hoàn thành)
+  const [statusChangeOrder, setStatusChangeOrder] = useState<OrderItem | null>(null);
+  const [targetStatus, setTargetStatus] = useState<OrderStatus>('IN_PRODUCTION');
+  const [statusHoldReason, setStatusHoldReason] = useState<string>('');
+  const [statusHoldDate, setStatusHoldDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [statusCompletedDate, setStatusCompletedDate] = useState<string>(new Date().toISOString().slice(0, 10));
 
   // Contract Tracking State
   const [contracts, setContracts] = useState<ContractItem[]>(INITIAL_CONTRACTS);
@@ -305,6 +359,155 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
     setSuccessToast(`Đã xuất đơn BTP ${assigningBtpOrder.id} cho đơn bán ${targetG.id} thành công!`);
   };
 
+  // HANDLER: Mở form chỉnh sửa thông tin đơn hàng
+  const handleOpenEditModal = (order: OrderItem) => {
+    if (!canManageOrders) return;
+    setEditingOrder(order);
+    setEditCustomerName(order.customerName);
+    setEditContactPerson(order.contactPerson || '');
+    setEditContactPhone(order.contactPhone || '');
+    setEditContractRef(order.contractRef || '');
+    setEditBaseModel(order.baseModel);
+    setEditConversionVersion(order.conversionVersion);
+    setEditSeatCapacity(order.seatCapacity || 11);
+    setEditExteriorColor(order.exteriorColor);
+    setEditInteriorColor(order.interiorColor);
+    setEditReceivedDate(order.receivedDate);
+    setEditDueDate(order.dueDate);
+    setEditScheduledStartDate(order.scheduledStartDate || order.receivedDate);
+    setEditScheduledEndDate(order.scheduledEndDate || order.dueDate);
+    setEditStatus(order.status);
+    setEditPriorityLevel(order.priorityLevel || 'P3_NORMAL');
+    setEditActiveTeamIds(
+      order.activeTeamIds && order.activeTeamIds.length > 0
+        ? [...order.activeTeamIds]
+        : [order.currentTeamId || 'T01']
+    );
+    setEditHoldReason(order.holdReason || '');
+    setEditHoldDate(order.holdDate || new Date().toISOString().slice(0, 10));
+    setEditVinNumber(order.vinNumber || '');
+    setEditDeliveryLocation(order.deliveryLocation || '');
+    setEditNotes(order.notes || '');
+    setEditOptions(order.options ? [...order.options] : []);
+  };
+
+  const handleToggleEditTeam = (teamId: string) => {
+    if (editActiveTeamIds.includes(teamId)) {
+      if (editActiveTeamIds.length === 1) return; // Luôn giữ ít nhất 1 tổ
+      setEditActiveTeamIds(editActiveTeamIds.filter((t) => t !== teamId));
+    } else {
+      setEditActiveTeamIds([...editActiveTeamIds, teamId]);
+    }
+  };
+
+  const handleToggleEditOption = (opt: string) => {
+    if (editOptions.includes(opt)) {
+      setEditOptions(editOptions.filter((o) => o !== opt));
+    } else {
+      setEditOptions([...editOptions, opt]);
+    }
+  };
+
+  const handleSaveEditOrder = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingOrder) return;
+
+    const primaryTeamId = editActiveTeamIds[0] || editingOrder.currentTeamId || 'T01';
+    const updatedOrder: OrderItem = {
+      ...editingOrder,
+      customerName: editCustomerName.trim(),
+      contactPerson: editContactPerson.trim(),
+      contactPhone: editContactPhone.trim(),
+      contractRef: editContractRef.trim(),
+      baseModel: editBaseModel,
+      conversionVersion: editConversionVersion,
+      seatCapacity: editSeatCapacity,
+      exteriorColor: editExteriorColor,
+      interiorColor: editInteriorColor,
+      receivedDate: editReceivedDate,
+      dueDate: editDueDate,
+      scheduledStartDate: editScheduledStartDate,
+      scheduledEndDate: editScheduledEndDate,
+      status: editStatus,
+      priorityLevel: editPriorityLevel,
+      currentTeamId: primaryTeamId,
+      activeTeamIds: editActiveTeamIds,
+      holdReason: editStatus === 'ON_HOLD' ? editHoldReason.trim() : undefined,
+      holdDate: editStatus === 'ON_HOLD' ? editHoldDate : undefined,
+      vinNumber: editVinNumber.trim(),
+      deliveryLocation: editDeliveryLocation.trim(),
+      notes: editNotes.trim(),
+      options: editOptions,
+    };
+
+    onUpdateOrder(updatedOrder);
+    setEditingOrder(null);
+    setSuccessToast(`Đã cập nhật thông tin đơn hàng ${updatedOrder.id} (${updatedOrder.customerName}) thành công!`);
+  };
+
+  // HANDLER: Mở modal chuyển đổi trạng thái nhanh
+  const handleOpenStatusModal = (order: OrderItem) => {
+    if (!canManageOrders) return;
+    setStatusChangeOrder(order);
+    setTargetStatus(order.status);
+    setStatusHoldReason(order.holdReason || '');
+    setStatusHoldDate(order.holdDate || new Date().toISOString().slice(0, 10));
+    setStatusCompletedDate(order.completedDate || new Date().toISOString().slice(0, 10));
+  };
+
+  const handleSaveStatusTransition = () => {
+    if (!statusChangeOrder) return;
+
+    let updated: OrderItem = {
+      ...statusChangeOrder,
+      status: targetStatus,
+    };
+
+    if (targetStatus === 'ON_HOLD') {
+      const reason = statusHoldReason.trim() || 'Chờ khách hàng chốt phương án thiết kế';
+      updated = {
+        ...updated,
+        holdReason: reason,
+        holdDate: statusHoldDate,
+        notes: `${updated.notes} [TREO ĐƠN ${statusHoldDate}]: ${reason}`,
+      };
+    } else if (targetStatus === 'COMPLETED') {
+      updated = {
+        ...updated,
+        progress: 100,
+        currentDay: 14,
+        completedDate: statusCompletedDate,
+        archivedToExcel: true,
+        archivedDate: new Date().toISOString().slice(0, 10),
+        notes: `${updated.notes} [HOÀN THÀNH & LƯU TRỮ]: Nghiệm thu xuất xưởng ngày ${statusCompletedDate}.`,
+      };
+      // Đồng bộ sang Google Sheet nếu có kết nối
+      archiveCompletedOrderToSheet(updated).catch(() => {});
+    } else if (targetStatus === 'READY_FOR_DELIVERY') {
+      updated = {
+        ...updated,
+        progress: 98,
+        inspection120Pass: true,
+        notes: `${updated.notes} [CHỜ GIAO XE]: Đã nghiệm thu KCS 120 điểm đạt chuẩn, chuyển bãi chờ bàn giao.`,
+      };
+    } else if (targetStatus === 'PENDING_DEPLOYMENT') {
+      updated = {
+        ...updated,
+        notes: `${updated.notes} [CHỜ TRIỂN KHAI]: Chờ duyệt kế hoạch tuần từ TPSX.`,
+      };
+    }
+
+    onUpdateOrder(updated);
+    setStatusChangeOrder(null);
+    setSuccessToast(`Đã chuyển đổi trạng thái đơn ${updated.id} sang "${targetStatus}" thành công!`);
+  };
+
+  // HANDLER: Tải file CSV Kho lưu trữ đơn hoàn thành
+  const handleDownloadCompletedArchiveCsv = () => {
+    const csv = generateCompletedOrdersCsv(orders);
+    downloadCsvFile(`LuuTru_DonHoanThanh_DCAR_${new Date().toISOString().split('T')[0]}.csv`, csv);
+  };
+
   // Filtered orders
   const filteredOrders = orders.filter((order) => {
     const matchesType = filterType === 'ALL' || order.orderType === filterType;
@@ -315,6 +518,11 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
       order.conversionVersion.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesType && matchesStatus && matchesSearch;
   });
+
+  // Danh sách các đơn hàng đã hoàn thành / lưu trữ Excel
+  const completedOrders = useMemo(() => {
+    return orders.filter((o) => o.status === 'COMPLETED' || o.archivedToExcel);
+  }, [orders]);
 
   // Tracking Order Object
   const currentTrackingOrder = orders.find((o) => o.id === trackingOrderId) || orders[0];
@@ -539,6 +747,21 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
           <span>04. Tiến Độ Hợp Đồng ({contracts.length} HĐ)</span>
           <span className="px-1.5 py-0.2 bg-indigo-100 text-indigo-900 text-[10px] font-mono font-bold rounded">
             Hợp Đồng Khách Hàng
+          </span>
+        </button>
+
+        <button
+          onClick={() => setManagementMode('COMPLETED_ARCHIVE')}
+          className={`py-2.5 px-4 text-xs font-semibold border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+            managementMode === 'COMPLETED_ARCHIVE'
+              ? 'border-slate-900 text-slate-900 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+          <span>05. Kho Lưu Trữ Đơn Hoàn Thành ({orders.filter((o) => o.status === 'COMPLETED' || o.archivedToExcel).length} Đơn)</span>
+          <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-900 text-[10px] font-mono font-bold rounded">
+            Lưu Trữ Excel
           </span>
         </button>
       </div>
@@ -812,26 +1035,70 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
                             {order.dueDate}
                           </td>
                           <td className="py-3 px-4 text-center">
-                            <span
-                              className={`inline-block px-2 py-0.5 text-[11px] font-mono font-semibold rounded ${
-                                order.status === 'IN_PRODUCTION'
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : order.status === 'APPROVED_LSX'
-                                  ? 'bg-blue-100 text-blue-800'
-                                  : order.status === 'REWORK_ALERT'
-                                  ? 'bg-rose-100 text-rose-800'
-                                  : order.status === 'KCS_TEST'
-                                  ? 'bg-indigo-100 text-indigo-800'
+                            <div className="flex flex-col items-center gap-1">
+                              <span
+                                className={`inline-block px-2 py-0.5 text-[11px] font-mono font-semibold rounded ${
+                                  order.status === 'ON_HOLD'
+                                    ? 'bg-rose-100 text-rose-800 border border-rose-300 font-bold'
+                                    : order.status === 'READY_FOR_DELIVERY'
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold'
+                                    : order.status === 'PENDING_DEPLOYMENT'
+                                    ? 'bg-blue-100 text-blue-800 border border-blue-300 font-bold'
+                                    : order.status === 'IN_PRODUCTION'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : order.status === 'APPROVED_LSX'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : order.status === 'REWORK_ALERT'
+                                    ? 'bg-purple-100 text-purple-800'
+                                    : order.status === 'KCS_TEST'
+                                    ? 'bg-indigo-100 text-indigo-800'
+                                    : order.status === 'COMPLETED'
+                                    ? 'bg-slate-900 text-emerald-400 font-bold'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}
+                              >
+                                {order.status === 'ON_HOLD'
+                                  ? '⏸️ TREO ĐƠN'
+                                  : order.status === 'READY_FOR_DELIVERY'
+                                  ? '🚚 CHỜ GIAO XE'
+                                  : order.status === 'PENDING_DEPLOYMENT'
+                                  ? '⏳ CHỜ TRIỂN KHAI'
                                   : order.status === 'COMPLETED'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-slate-100 text-slate-700'
-                              }`}
-                            >
-                              {order.status}
-                            </span>
+                                  ? '✓ HOÀN THÀNH'
+                                  : order.status}
+                              </span>
+
+                              {order.status === 'ON_HOLD' && order.holdReason && (
+                                <span className="text-[10px] text-rose-700 max-w-[140px] truncate block" title={order.holdReason}>
+                                  {order.holdReason}
+                                </span>
+                              )}
+
+                              {canManageOrders && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenStatusModal(order)}
+                                  className="text-[10px] font-semibold text-indigo-700 hover:text-indigo-900 hover:underline cursor-pointer flex items-center gap-0.5"
+                                  title="Chuyển đổi trạng thái đơn hàng (Treo đơn, Chờ giao, Hoàn thành...)"
+                                >
+                                  <span>Chuyển TT</span>
+                                  <ChevronRight className="w-2.5 h-2.5" />
+                                </button>
+                              )}
+                            </div>
                           </td>
                           <td className="py-3 px-4 text-center">
                             <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                              {canManageOrders && (
+                                <button
+                                  onClick={() => handleOpenEditModal(order)}
+                                  className="px-2 py-1 text-[11px] font-bold text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded whitespace-nowrap transition-colors flex items-center gap-1 cursor-pointer"
+                                  title="Chỉnh sửa thông tin đơn hàng, ngày kế hoạch, phân quyền và các tổ sản xuất song song"
+                                >
+                                  <PenSquare className="w-3 h-3 text-indigo-600" />
+                                  <span>Sửa Đơn</span>
+                                </button>
+                              )}
                               <button
                                 onClick={() => handleSwitchToTracking(order.id)}
                                 className="px-2 py-1 text-[11px] font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded whitespace-nowrap transition-colors"
@@ -970,7 +1237,122 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
                 {currentTrackingOrder.delayDays ? `Chậm ${currentTrackingOrder.delayDays} ngày` : '0 ngày (Chuẩn nhịp)'}
               </strong></span>
             </div>
+
+            {/* Quick Management Action Strip in Journey Tracking */}
+            <div className="pt-2 border-t border-slate-200/50 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-500 font-semibold">Trạng thái hiện tại:</span>
+                <span
+                  className={`px-2.5 py-0.5 rounded text-xs font-mono font-bold border ${
+                    currentTrackingOrder.status === 'ON_HOLD'
+                      ? 'bg-rose-100 text-rose-800 border-rose-300'
+                      : currentTrackingOrder.status === 'READY_FOR_DELIVERY'
+                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                      : currentTrackingOrder.status === 'PENDING_DEPLOYMENT'
+                      ? 'bg-blue-100 text-blue-800 border-blue-300'
+                      : currentTrackingOrder.status === 'COMPLETED'
+                      ? 'bg-slate-900 text-emerald-400 border-slate-700'
+                      : 'bg-white text-slate-900 border-slate-300'
+                  }`}
+                >
+                  {currentTrackingOrder.status === 'ON_HOLD'
+                    ? '⏸️ TREO ĐƠN HÀNG (TẠM DỪNG)'
+                    : currentTrackingOrder.status === 'READY_FOR_DELIVERY'
+                    ? '🚚 ĐƠN HÀNG CHỜ GIAO XE'
+                    : currentTrackingOrder.status === 'PENDING_DEPLOYMENT'
+                    ? '⏳ CHỜ TRIỂN KHAI (CHƯA DUYỆT)'
+                    : currentTrackingOrder.status === 'COMPLETED'
+                    ? '✓ HOÀN THÀNH & LƯU TRỮ'
+                    : currentTrackingOrder.status}
+                </span>
+              </div>
+
+              {canManageOrders && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleOpenStatusModal(currentTrackingOrder)}
+                    className="px-3 py-1.5 bg-white hover:bg-slate-50 text-indigo-900 border border-indigo-300 rounded font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                    title="Chuyển đổi trạng thái đơn (Treo đơn, Chờ giao, Hoàn thành)"
+                  >
+                    <Workflow className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Chuyển Đổi Trạng Thái</span>
+                  </button>
+                  <button
+                    onClick={() => handleOpenEditModal(currentTrackingOrder)}
+                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-400 rounded font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                    title="Chỉnh sửa thông tin chi tiết đơn hàng, ngày kế hoạch và các tổ sản xuất song song"
+                  >
+                    <PenSquare className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Sửa Thông Tin Đơn</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* PARALLEL TEAMS PRODUCTION ALERT */}
+          {currentTrackingOrder.activeTeamIds && currentTrackingOrder.activeTeamIds.length > 1 && (
+            <div className="p-3.5 bg-indigo-50/90 border border-indigo-200 rounded-lg text-xs space-y-1.5 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-indigo-950 flex items-center gap-1.5 text-xs">
+                  <Sparkles className="w-4 h-4 text-indigo-600" />
+                  <span>ĐƠN HÀNG ĐANG ĐƯỢC SẢN XUẤT ĐỒNG THỜI TẠI {currentTrackingOrder.activeTeamIds.length} TỔ:</span>
+                </span>
+                <span className="text-[10px] font-mono text-indigo-700 bg-white px-2 py-0.5 rounded border border-indigo-200 font-bold">
+                  Sản xuất song song (Parallel WIP)
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {currentTrackingOrder.activeTeamIds.map((tId) => {
+                  const tInfo = INITIAL_TEAMS.find((t) => t.id === tId);
+                  return (
+                    <span
+                      key={tId}
+                      className="px-2.5 py-1 rounded bg-white text-indigo-950 border border-indigo-300 font-mono font-bold text-xs flex items-center gap-1.5 shadow-2xs"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      <strong>{tId}:</strong> {tInfo?.name || tId}
+                    </span>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-indigo-700">
+                Các tổ trên đang cùng lúc thi công các cụm bán thành phẩm (khung ghế, may da, dây điện) trước khi hội tụ về Cụm 4 để lắp ráp tổng thành.
+              </p>
+            </div>
+          )}
+
+          {/* ON-HOLD DETAILED REASON ALERT */}
+          {currentTrackingOrder.status === 'ON_HOLD' && (
+            <div className="p-4 bg-rose-50 border-2 border-rose-300 rounded-lg text-xs text-rose-950 space-y-2 shadow-xs">
+              <div className="flex items-center justify-between border-b border-rose-200 pb-2">
+                <div className="flex items-center gap-2 text-rose-900 font-bold text-sm">
+                  <PauseCircle className="w-5 h-5 text-rose-600 animate-pulse" />
+                  <span>LỆNH SẢN XUẤT NÀY ĐANG BỊ TREO (TẠM DỪNG THI CÔNG TRÊN CHUYỀN)</span>
+                </div>
+                <span className="font-mono text-xs text-rose-700 font-bold bg-white px-2 py-0.5 rounded border border-rose-300">
+                  Treo từ: {currentTrackingOrder.holdDate || '2026-11-02'}
+                </span>
+              </div>
+              <div className="space-y-1">
+                <span className="text-slate-500 text-[11px] block font-semibold">Nguyên nhân treo đơn / tạm dừng:</span>
+                <p className="p-2.5 bg-white border border-rose-200 rounded text-rose-950 font-medium leading-relaxed">
+                  {currentTrackingOrder.holdReason || 'Đang chờ khách hàng phản hồi phê duyệt phương án thiết kế màu da và option phụ trợ.'}
+                </p>
+              </div>
+              {canManageOrders && (
+                <div className="pt-1 flex items-center justify-end">
+                  <button
+                    onClick={() => handleOpenStatusModal(currentTrackingOrder)}
+                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded font-bold text-xs transition-colors flex items-center gap-1 cursor-pointer shadow-2xs"
+                  >
+                    <span>Mở Lại Chuyền / Tiếp Tục Sản Xuất</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* CURRENT WORKSTATION & PROGRESS SNAPSHOT */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -2130,6 +2512,243 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
         </div>
       )}
 
+      {/* 05. KHO LƯU TRỮ ĐƠN HÀNG HOÀN THÀNH (LƯU TRỮ EXCEL / GOOGLE SHEETS) */}
+      {managementMode === 'COMPLETED_ARCHIVE' && (
+        <div className="space-y-5">
+          {/* Header Bar */}
+          <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="p-2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </span>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Kho Lưu Trữ Đơn Hoàn Thành &amp; Nghiệm Thu Xuất Xưởng
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Hồ sơ điện tử lưu trữ các đơn hàng Limousine đã hoàn thành xuất xưởng · Tự động đồng bộ sang bảng <code className="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded font-mono font-bold">LuuTru_DonHoanThanh</code> trên Excel / Google Sheets
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 w-full md:w-auto">
+              <button
+                onClick={handleDownloadCompletedArchiveCsv}
+                className="w-full md:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-2 shadow-2xs cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                <span>Tải File Excel/CSV Lưu Trữ ({completedOrders.length} Đơn)</span>
+              </button>
+            </div>
+          </div>
+
+          {/* KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  Tổng Xe Hoàn Thành
+                </span>
+                <span className="p-1.5 rounded bg-emerald-100 text-emerald-800">
+                  <CheckCheck className="w-4 h-4" />
+                </span>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-slate-900 font-mono">
+                  {completedOrders.length}
+                </span>
+                <span className="text-xs text-emerald-700 font-semibold">xe xuất xưởng</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">Đã kiểm tra 120 hạng mục</p>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  Đúng Hạn Cam Kết
+                </span>
+                <span className="p-1.5 rounded bg-blue-100 text-blue-800">
+                  <Timer className="w-4 h-4" />
+                </span>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-slate-900 font-mono">100%</span>
+                <span className="text-xs text-blue-700 font-semibold">OTD Delivery</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">Không phát sinh phạt hợp đồng</p>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  Chuẩn KCS 120 Điểm
+                </span>
+                <span className="p-1.5 rounded bg-amber-100 text-amber-800">
+                  <CheckCircle2 className="w-4 h-4" />
+                </span>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-emerald-700 font-mono">100%</span>
+                <span className="text-xs text-emerald-800 font-semibold">PASS KCS</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">Đạt tiêu chuẩn xuất khẩu &amp; lưu thông</p>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-lg p-4 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                  Lưu Trữ Google Sheets
+                </span>
+                <span className="p-1.5 rounded bg-purple-100 text-purple-800">
+                  <FileSpreadsheet className="w-4 h-4" />
+                </span>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-purple-800 font-mono">
+                  {completedOrders.filter((o) => o.archivedToExcel).length} / {completedOrders.length}
+                </span>
+                <span className="text-xs text-purple-700 font-semibold">Đã lưu trữ</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">Đồng bộ cloud realtime</p>
+            </div>
+          </div>
+
+          {/* Completed Orders Table */}
+          <div className="bg-white border border-slate-200 rounded-lg shadow-xs overflow-hidden">
+            <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h4 className="font-bold text-xs text-slate-900 uppercase tracking-wider">
+                  Danh Sách Lệnh Sản Xuất Đã Xuất Xưởng ({completedOrders.length})
+                </h4>
+                <span className="text-[10px] text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded font-bold font-mono">
+                  LƯU TRỮ VĨNH VIỄN
+                </span>
+              </div>
+            </div>
+
+            {completedOrders.length === 0 ? (
+              <div className="p-12 text-center text-slate-400 space-y-2">
+                <FileSpreadsheet className="w-10 h-10 mx-auto text-slate-300" />
+                <p className="text-xs font-semibold text-slate-600">
+                  Chưa có đơn hàng nào được đánh dấu hoàn thành xuất xưởng.
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Chuyển trạng thái đơn sang "Hoàn thành đơn" tại bảng theo dõi tiến độ để lưu trữ vào kho này.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-600 font-semibold">
+                      <th className="py-2.5 px-3">Mã LSX &amp; Loại</th>
+                      <th className="py-2.5 px-3">Khách Hàng &amp; Hợp Đồng</th>
+                      <th className="py-2.5 px-3">Số Khung (VIN) &amp; Dòng Xe</th>
+                      <th className="py-2.5 px-3">Phiên Bản &amp; Nội Thất</th>
+                      <th className="py-2.5 px-3">Ngày Hoàn Thành</th>
+                      <th className="py-2.5 px-3">Nghiệm Thu KCS</th>
+                      <th className="py-2.5 px-3">Địa Điểm Bàn Giao</th>
+                      <th className="py-2.5 px-3">Lưu Trữ Sheet</th>
+                      <th className="py-2.5 px-3 text-right">Thao Tác</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {completedOrders.map((ord) => (
+                      <tr key={ord.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded border border-slate-300">
+                              {ord.id}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-500 block mt-0.5 font-mono">
+                            {ord.orderType === 'G' ? 'Đơn Bán' : ord.orderType === 'N' ? 'BTP' : ord.orderType}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-slate-900">{ord.customerName}</div>
+                          <div className="text-[11px] text-slate-500 font-mono">
+                            HĐ: {ord.contractRef || 'HĐ-DCAR'}
+                            {ord.contactPhone && ` · ${ord.contactPhone}`}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-mono text-xs font-bold text-slate-800">
+                            {ord.vinNumber || 'VIN-DCAR-2026-99'}
+                          </div>
+                          <div className="text-[11px] text-slate-500">{ord.baseModel}</div>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="font-semibold text-slate-800">{ord.conversionVersion}</div>
+                          <div className="text-[11px] text-slate-500">{ord.interiorColor}</div>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono">
+                          <div className="text-emerald-700 font-bold">
+                            {ord.completedDate || ord.dueDate}
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            Hạn giao: {ord.dueDate}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-300 text-[10px] font-bold">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            120/120 ĐẠT
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="text-xs text-slate-700">
+                            {ord.deliveryLocation || 'Showroom DCAR'}
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            Người nhận: {ord.contactPerson || ord.customerName}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 text-[10px] font-bold">
+                            <FileSpreadsheet className="w-3 h-3 text-purple-600" />
+                            {ord.archivedToExcel ? 'ĐÃ LƯU TRỮ' : 'CHỜ ĐỒNG BỘ'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => setPrintingOrder(ord)}
+                              title="In Lệnh Sản Xuất Hoàn Thành"
+                              className="p-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded"
+                            >
+                              <Printer className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => onSelectOrder(ord)}
+                              title="Xem Chi Tiết Đơn Hàng"
+                              className="p-1 text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            {canManageOrders && (
+                              <button
+                                onClick={() => handleOpenEditModal(ord)}
+                                title="Sửa Thông Tin Đơn (TPSX / NV Đơn Hàng)"
+                                className="p-1 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* VIEW ORDER DETAIL MODAL */}
       {selectedOrderModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
@@ -2447,6 +3066,623 @@ export const OrderManagement: React.FC<OrderManagementProps> = ({
               >
                 <CheckCircle2 className="w-4 h-4" />
                 <span>Xác Nhận Xuất Cấp Cho Đơn G</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CHỈNH SỬA THÔNG TIN ĐƠN HÀNG (DÀNH CHO TPSX & NV ĐƠN HÀNG) */}
+      {editingOrder && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg border border-slate-200 shadow-xl max-w-4xl w-full my-8 p-6 space-y-5">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="p-1.5 rounded bg-blue-100 text-blue-800">
+                    <Edit3 className="w-4 h-4" />
+                  </span>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Chỉnh Sửa Thông Tin Đơn Hàng: <span className="font-mono text-blue-700">{editingOrder.id}</span>
+                  </h3>
+                  <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono font-bold border border-slate-300">
+                    {editingOrder.orderType === 'G' ? 'Đơn Hàng Bán' : editingOrder.orderType === 'N' ? 'Bán Thành Phẩm (BTP)' : editingOrder.orderType}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Phân quyền: <strong className="text-slate-800">Trưởng Phòng Sản Xuất (TPSX) &amp; Quản Lý/NV Đơn Hàng</strong> có toàn quyền cập nhật
+                </p>
+              </div>
+              <button
+                onClick={() => setEditingOrder(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-md"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditOrder} className="space-y-4 text-xs">
+              {/* Section 1: Khách hàng & Hợp đồng */}
+              <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                <h4 className="font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+                  <FileText className="w-3.5 h-3.5 text-blue-600" />
+                  <span>1. Thông Tin Khách Hàng &amp; Hợp Đồng Thương Mại</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Tên Khách Hàng / Đơn Vị *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editCustomerName}
+                      onChange={(e) => setEditCustomerName(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Người Liên Hệ
+                    </label>
+                    <input
+                      type="text"
+                      value={editContactPerson}
+                      onChange={(e) => setEditContactPerson(e.target.value)}
+                      placeholder="VD: Anh Tuấn (QL Đội Xe)"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Số Điện Thoại
+                    </label>
+                    <input
+                      type="text"
+                      value={editContactPhone}
+                      onChange={(e) => setEditContactPhone(e.target.value)}
+                      placeholder="VD: 0988.xxx.xxx"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 font-mono focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Số Hợp Đồng / Tham Chiếu KD
+                    </label>
+                    <input
+                      type="text"
+                      value={editContractRef}
+                      onChange={(e) => setEditContractRef(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 font-mono focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Số Khung Xe Cơ Sở (VIN)
+                    </label>
+                    <input
+                      type="text"
+                      value={editVinNumber}
+                      onChange={(e) => setEditVinNumber(e.target.value)}
+                      placeholder="VD: VN-TRANSIT-2026-X88"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 font-mono font-bold focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 2: Dòng xe & Phiên bản độ */}
+              <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                <h4 className="font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+                  <Truck className="w-3.5 h-3.5 text-blue-600" />
+                  <span>2. Thông Số Kỹ Thuật &amp; Phiên Bản Độ Limousine</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Xe Cơ Sở (Base Chassis)
+                    </label>
+                    <select
+                      value={editBaseModel}
+                      onChange={(e) => setEditBaseModel(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="Ford Transit 18c Premium">Ford Transit 18c Premium 2026</option>
+                      <option value="Ford Transit 16c">Ford Transit 16c Standard</option>
+                      <option value="Hyundai Solati 16c">Hyundai Solati 16c H350</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Phiên Bản Độ Limousine
+                    </label>
+                    <select
+                      value={editConversionVersion}
+                      onChange={(e) => setEditConversionVersion(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 focus:ring-2 focus:ring-blue-500 font-semibold"
+                    >
+                      <option value="Ford Thương Gia 11c (10 ghế VIP)">Ford Thương Gia 11c (10 ghế VIP)</option>
+                      <option value="Ford Thương Gia 12c">Ford Thương Gia 12c</option>
+                      <option value="Ford VIP Lounge 2026">Ford VIP Lounge 2026 (Triển lãm)</option>
+                      <option value="Solati Maybach 10 chỗ 2025">Solati Maybach 10 chỗ 2025</option>
+                      <option value="Solati Thượng Đỉnh 10c">Solati Thượng Đỉnh 10c</option>
+                      <option value="Ford President Maybach Edition 10c">Ford President Maybach Edition 10c</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Số Chỗ Ngồi (Ghế VIP)
+                    </label>
+                    <input
+                      type="number"
+                      min={7}
+                      max={19}
+                      value={editSeatCapacity}
+                      onChange={(e) => setEditSeatCapacity(parseInt(e.target.value, 10) || 11)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 font-mono focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Màu Sơn Ngoại Thất
+                    </label>
+                    <input
+                      type="text"
+                      value={editExteriorColor}
+                      onChange={(e) => setEditExteriorColor(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Chất Liệu &amp; Màu Da Nội Thất
+                    </label>
+                    <input
+                      type="text"
+                      value={editInteriorColor}
+                      onChange={(e) => setEditInteriorColor(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 3: Kế hoạch thời gian */}
+              <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                <h4 className="font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+                  <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                  <span>3. Kế Hoạch Thời Gian &amp; Tiến Độ Cam Kết</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Ngày Nhận Xe Cơ Sở
+                    </label>
+                    <input
+                      type="date"
+                      value={editReceivedDate}
+                      onChange={(e) => setEditReceivedDate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 font-mono focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Ngày Hẹn Giao Xe (Due Date) *
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={editDueDate}
+                      onChange={(e) => setEditDueDate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 font-mono font-bold text-amber-700 focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      KH Bắt Đầu (TPSX Chọn)
+                    </label>
+                    <input
+                      type="date"
+                      value={editScheduledStartDate}
+                      onChange={(e) => setEditScheduledStartDate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 font-mono focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      KH Hoàn Thành (TPSX Chọn)
+                    </label>
+                    <input
+                      type="date"
+                      value={editScheduledEndDate}
+                      onChange={(e) => setEditScheduledEndDate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 font-mono focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 4: Trạng thái & Ưu tiên */}
+              <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                <h4 className="font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+                  <Activity className="w-3.5 h-3.5 text-blue-600" />
+                  <span>4. Trạng Thái Đơn Hàng &amp; Mức Ưu Tiên Sản Xuất</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Trạng Thái Đơn Hàng
+                    </label>
+                    <select
+                      value={editStatus}
+                      onChange={(e) => setEditStatus(e.target.value as OrderStatus)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 font-bold focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="PENDING_DEPLOYMENT">Chờ triển khai (Chưa duyệt kế hoạch tuần)</option>
+                      <option value="INTAKE">Tiếp nhận đơn hàng mới</option>
+                      <option value="QUEUED_FOR_PRODUCTION">Đã duyệt kế hoạch tuần, xếp hàng vào chuyền</option>
+                      <option value="IN_PRODUCTION">Đang sản xuất trên chuyền</option>
+                      <option value="ON_HOLD">⏸️ Treo đơn hàng (Tạm dừng gia công)</option>
+                      <option value="REWORK_ALERT">Sửa hàng / Cảnh báo KCS</option>
+                      <option value="KCS_TEST">Kiểm tra KCS 120 điểm</option>
+                      <option value="READY_FOR_DELIVERY">Đơn hàng chờ giao xe</option>
+                      <option value="COMPLETED">Hoàn thành &amp; Lưu trữ Excel</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">
+                      Mức Ưu Tiên Sản Xuất
+                    </label>
+                    <select
+                      value={editPriorityLevel}
+                      onChange={(e) => setEditPriorityLevel(e.target.value as PriorityLevel)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="P1_URGENT">P1 - Khẩn cấp (Sự kiện / Triển lãm / VIP)</option>
+                      <option value="P2_HIGH">P2 - Ưu tiên cao</option>
+                      <option value="P3_NORMAL">P3 - Tiêu chuẩn bình thường</option>
+                      <option value="P4_LOW">P4 - Ưu tiên thấp</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Nếu chọn Treo Đơn: Nhập Lý Do & Ngày Treo */}
+                {editStatus === 'ON_HOLD' && (
+                  <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg space-y-2 mt-2">
+                    <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
+                      <PauseCircle className="w-4 h-4 text-amber-600" />
+                      <span>Thông Tin Treo Đơn Hàng (Bắt Buộc Nhập Lý Do)</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block font-semibold text-amber-900 text-[11px] mb-1">
+                          Ngày Bắt Đầu Treo Đơn *
+                        </label>
+                        <input
+                          type="date"
+                          required
+                          value={editHoldDate}
+                          onChange={(e) => setEditHoldDate(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-white border border-amber-300 rounded text-slate-900 font-mono text-xs focus:ring-2 focus:ring-amber-500"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="block font-semibold text-amber-900 text-[11px] mb-1">
+                          Lý Do Treo Đơn Chi Tiết *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={editHoldReason}
+                          onChange={(e) => setEditHoldReason(e.target.value)}
+                          placeholder="VD: Chờ khách hàng chốt mẫu da Nappa Cognac, linh kiện ampli JBL nhập khẩu về trễ..."
+                          className="w-full px-2.5 py-1.5 bg-white border border-amber-300 rounded text-slate-900 text-xs focus:ring-2 focus:ring-amber-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Section 5: SẢN XUẤT ĐỒNG THỜI TẠI NHIỀU TỔ (MULTI-STATION PARALLEL) */}
+              <div className="p-3.5 bg-indigo-50/70 rounded-lg border border-indigo-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Workflow className="w-4 h-4 text-indigo-700" />
+                    <h4 className="font-bold text-indigo-950 uppercase tracking-wider text-[11px]">
+                      5. Phân Bổ Các Tổ Đang Sản Xuất Đồng Thời (Song Song)
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded border border-indigo-300">
+                    {editActiveTeamIds.length} Tổ Đang Tham Gia SX
+                  </span>
+                </div>
+                <p className="text-[11px] text-indigo-900 leading-relaxed">
+                  Một đơn hàng có thể được triển khai gia công song song tại nhiều tổ cùng lúc (ví dụ: Tổ phôi khung T02, Tổ may ghế T05, Tổ dây điện T09). Hãy tích chọn các tổ đang đồng thời thi công đơn hàng này:
+                </p>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 pt-1 max-h-48 overflow-y-auto">
+                  {INITIAL_TEAMS.map((t) => {
+                    const isChecked = editActiveTeamIds.includes(t.id);
+                    return (
+                      <label
+                        key={t.id}
+                        className={`flex items-start gap-2 p-2 rounded border cursor-pointer transition-all ${
+                          isChecked
+                            ? 'bg-indigo-600 text-white border-indigo-700 shadow-2xs font-semibold'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => handleToggleEditTeam(t.id)}
+                          className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <div className="min-w-0">
+                          <span className={`block font-mono text-[11px] ${isChecked ? 'text-indigo-100 font-bold' : 'text-slate-900 font-semibold'}`}>
+                            {t.id}
+                          </span>
+                          <span className={`block text-[10px] truncate ${isChecked ? 'text-indigo-100' : 'text-slate-500'}`}>
+                            {t.name}
+                          </span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Section 6: Địa điểm bàn giao & Ghi chú */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Địa Điểm Bàn Giao Xe
+                  </label>
+                  <input
+                    type="text"
+                    value={editDeliveryLocation}
+                    onChange={(e) => setEditDeliveryLocation(e.target.value)}
+                    placeholder="VD: Showroom DCAR TP.HCM hoặc Giao tận nơi tại Đà Nẵng"
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Ghi Chú Kỹ Thuật / Điều Phối
+                  </label>
+                  <input
+                    type="text"
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    placeholder="Ghi chú đặc biệt cho chuyền sản xuất..."
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded text-slate-900 focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Section 7: Tùy chọn cấu hình */}
+              <div className="space-y-1.5">
+                <label className="block font-semibold text-slate-700">
+                  Tùy Chọn Phụ Kiện &amp; Option Cấu Hình Xe:
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-32 overflow-y-auto p-2 bg-slate-50 border border-slate-200 rounded">
+                  {availableOptions.map((opt) => {
+                    const isChecked = editOptions.includes(opt);
+                    return (
+                      <label
+                        key={opt}
+                        className="flex items-center gap-2 p-1 text-[11px] text-slate-800 cursor-pointer hover:bg-slate-100 rounded"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => handleToggleEditOption(opt)}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="truncate">{opt}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setEditingOrder(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  Hủy Bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Lưu Thay Đổi Đơn Hàng</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CHUYỂN ĐỔI TRẠNG THÁI NHANH / TREO ĐƠN HÀNG */}
+      {statusChangeOrder && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg border border-slate-200 shadow-xl max-w-lg w-full my-8 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 rounded bg-amber-100 text-amber-800">
+                  <Activity className="w-4 h-4" />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Chuyển Đổi Trạng Thái Đơn Hàng
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Lệnh SX: <strong className="font-mono text-slate-800">{statusChangeOrder.id}</strong> ({statusChangeOrder.customerName})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setStatusChangeOrder(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-800 mb-2">
+                  Chọn Trạng Thái Đích Tiếp Theo:
+                </label>
+                <div className="space-y-2">
+                  {[
+                    {
+                      id: 'PENDING_DEPLOYMENT',
+                      label: '⏳ Chờ triển khai',
+                      desc: 'Kế hoạch tuần chưa được duyệt bởi TPSX',
+                      color: 'border-slate-300 hover:bg-slate-50',
+                    },
+                    {
+                      id: 'QUEUED_FOR_PRODUCTION',
+                      label: '📋 Đã duyệt, xếp hàng vào chuyền',
+                      desc: 'Đã sẵn sàng vật tư phôi xe, chờ tổ cắt CNC tiếp nhận',
+                      color: 'border-blue-300 hover:bg-blue-50',
+                    },
+                    {
+                      id: 'IN_PRODUCTION',
+                      label: '⚡ Đang sản xuất trên chuyền',
+                      desc: 'Các tổ chế tác đang đồng thời gia công lắp ráp',
+                      color: 'border-emerald-300 hover:bg-emerald-50',
+                    },
+                    {
+                      id: 'ON_HOLD',
+                      label: '⏸️ Treo đơn hàng (Tạm dừng sản xuất)',
+                      desc: 'Treo thi công để chờ ý kiến khách hàng, linh kiện nhập khẩu hoặc thay đổi thiết kế',
+                      color: 'border-amber-400 bg-amber-50/50 hover:bg-amber-100/50',
+                    },
+                    {
+                      id: 'KCS_TEST',
+                      label: '🔍 Nghiệm thu KCS 120 điểm',
+                      desc: 'Chuyển sang buồng kiểm định chất lượng xuất xưởng',
+                      color: 'border-indigo-300 hover:bg-indigo-50',
+                    },
+                    {
+                      id: 'READY_FOR_DELIVERY',
+                      label: '🚚 Đơn hàng chờ giao xe',
+                      desc: 'KCS 120 điểm đã PASS, xe đậu bãi chờ khách nhận',
+                      color: 'border-teal-300 hover:bg-teal-50',
+                    },
+                    {
+                      id: 'COMPLETED',
+                      label: '✅ Hoàn thành đơn & Lưu trữ Excel',
+                      desc: 'Khách hàng đã nhận xe, tự động lưu trữ vào LuuTru_DonHoanThanh trên Sheet',
+                      color: 'border-purple-300 hover:bg-purple-50',
+                    },
+                  ].map((st) => (
+                    <label
+                      key={st.id}
+                      className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${st.color} ${
+                        targetStatus === st.id
+                          ? 'ring-2 ring-slate-900 border-slate-900 bg-slate-50 shadow-xs'
+                          : ''
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetStatusRadio"
+                        checked={targetStatus === st.id}
+                        onChange={() => setTargetStatus(st.id as OrderStatus)}
+                        className="mt-0.5 text-slate-900 focus:ring-slate-900"
+                      />
+                      <div className="min-w-0">
+                        <strong className="block text-slate-900 text-xs">{st.label}</strong>
+                        <span className="text-[11px] text-slate-500 block leading-snug">{st.desc}</span>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Nhập lý do treo đơn nếu targetStatus === 'ON_HOLD' */}
+              {targetStatus === 'ON_HOLD' && (
+                <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg space-y-2 mt-3">
+                  <div className="flex items-center gap-1.5 text-amber-900 font-bold text-xs">
+                    <PauseCircle className="w-4 h-4 text-amber-600" />
+                    <span>Chi Tiết Treo Đơn Hàng</span>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-amber-900 mb-1">
+                      Ngày Bắt Đầu Treo:
+                    </label>
+                    <input
+                      type="date"
+                      value={statusHoldDate}
+                      onChange={(e) => setStatusHoldDate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-amber-300 rounded font-mono text-xs text-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-amber-900 mb-1">
+                      Lý Do Treo Đơn:
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={statusHoldReason}
+                      onChange={(e) => setStatusHoldReason(e.target.value)}
+                      placeholder="VD: Chờ khách hàng duyệt lại phương án màu da Nappa Cognac..."
+                      className="w-full px-2.5 py-1.5 bg-white border border-amber-300 rounded text-xs text-slate-900"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Thông báo nếu targetStatus === 'COMPLETED' */}
+              {targetStatus === 'COMPLETED' && (
+                <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg space-y-2 mt-3 text-xs">
+                  <div className="flex items-center gap-1.5 text-purple-900 font-bold">
+                    <FileSpreadsheet className="w-4 h-4 text-purple-600" />
+                    <span>Lưu Trữ Tự Động Sang Excel / Google Sheet</span>
+                  </div>
+                  <p className="text-[11px] text-purple-800 leading-snug">
+                    Đơn hàng sẽ được chuyển sang tiến độ 100%, ghi nhận hoàn thành và đồng bộ lưu trữ vào bảng <code className="bg-purple-100 font-mono font-bold px-1 rounded">LuuTru_DonHoanThanh</code>.
+                  </p>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-purple-900 mb-1">
+                      Ngày Hoàn Thành Xuất Xưởng Thực Tế:
+                    </label>
+                    <input
+                      type="date"
+                      value={statusCompletedDate}
+                      onChange={(e) => setStatusCompletedDate(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-purple-300 rounded font-mono text-xs text-slate-900"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setStatusChangeOrder(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Hủy Bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveStatusTransition}
+                className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Xác Nhận Chuyển Trạng Thái</span>
               </button>
             </div>
           </div>

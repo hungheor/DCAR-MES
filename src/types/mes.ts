@@ -9,13 +9,16 @@ export type OrderType = 'G' | 'N' | 'T' | 'B'; // G: Bán thương mại, N: Bá
 
 export type OrderStatus =
   | 'INTAKE'                 // Tiếp nhận mới
+  | 'PENDING_DEPLOYMENT'    // Chờ triển khai (khi chưa duyệt kế hoạch tuần)
   | 'SCHEDULED_DRAFT'       // Lịch tuần gợi ý (Draft)
   | 'QUEUED_FOR_PRODUCTION' // Đã duyệt kế hoạch - Chờ ngày triển khai sản xuất
   | 'APPROVED_LSX'          // TPSX đã phê duyệt, ban hành LSX
-  | 'IN_PRODUCTION'         // Đang trên chuyền (Ngày 1-14)
+  | 'IN_PRODUCTION'         // Đang trên chuyền sản xuất (Ngày 1-14)
+  | 'ON_HOLD'               // Treo đơn hàng / Tạm dừng thi công
   | 'KCS_TEST'              // KCS Kiểm định 120 điểm
+  | 'READY_FOR_DELIVERY'    // Đơn hàng chờ giao (KCS đã nghiệm thu đạt chuẩn)
   | 'REWORK_ALERT'          // Phát sinh lỗi KCS / Rework
-  | 'COMPLETED';            // Đã nghiệm thu & Bàn giao
+  | 'COMPLETED';            // Hoàn thành đơn & Đã lưu trữ
 
 export type PriorityLevel = 'P1_CRITICAL' | 'P2_HIGH' | 'P3_NORMAL';
 
@@ -188,6 +191,14 @@ export interface OrderItem {
   allocatedToSalesOrderCode?: string;
   allocatedDate?: string; // Ngày xuất BTP cho đơn bán
   notes: string;
+  // Trạng thái treo đơn & lý do treo
+  holdReason?: string; // Lý do treo đơn (vd: Chờ khách chốt da Nappa, Chờ linh kiện nhập khẩu...)
+  holdDate?: string;   // Ngày bắt đầu treo đơn
+  // Sản xuất đồng thời tại nhiều tổ (Parallel team WIP)
+  activeTeamIds?: string[]; // Danh sách các tổ đang sản xuất song song (vd: ['T02', 'T05', 'T09'])
+  // Lưu trữ đơn hoàn thành trên Excel / Google Sheet
+  archivedToExcel?: boolean; // Đã chuyển sang kho lưu trữ đơn hoàn thành
+  archivedDate?: string;    // Ngày chuyển vào kho lưu trữ
   stepExecutions?: OrderStepExecution[];
   vinNumber?: string; // Số khung xe
   contactPerson?: string; // Người liên lạc

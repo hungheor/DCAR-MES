@@ -520,7 +520,7 @@ export const ProductionFlowDiagram: React.FC<ProductionFlowDiagramProps> = ({
     return dueDateColorMap.get(dueDate) || getProximityDeliveryPalette(dueDate);
   };
 
-  // Map orders to their active teams
+  // Map orders to their active teams (Hỗ trợ 1 đơn hàng sản xuất cùng lúc tại nhiều tổ song song!)
   const ordersByTeam = useMemo(() => {
     const map: Record<string, OrderItem[]> = {};
     TEAMS_CONFIG.forEach((t) => {
@@ -528,25 +528,31 @@ export const ProductionFlowDiagram: React.FC<ProductionFlowDiagramProps> = ({
     });
 
     activeOrders.forEach((order) => {
-      const teamId = resolveOrderTeamId(order);
-      if (map[teamId]) {
-        map[teamId].push(order);
-      } else {
-        // Fallback for safety
-        if (!map['T14']) map['T14'] = [];
-        map['T14'].push(order);
-      }
+      const targetTeamIds = (order.activeTeamIds && order.activeTeamIds.length > 0)
+        ? order.activeTeamIds
+        : [resolveOrderTeamId(order)];
+
+      targetTeamIds.forEach((teamId) => {
+        if (map[teamId]) {
+          map[teamId].push(order);
+        } else {
+          if (!map['T14']) map['T14'] = [];
+          map['T14'].push(order);
+        }
+      });
     });
 
     return map;
   }, [activeOrders]);
 
-  // Stats across clusters
+  // Stats across clusters (tính tổng các xe/công đoạn đang gia công tại các cụm)
   const clusterStats = useMemo(() => {
-    const c1Orders = activeOrders.filter((o) => resolveOrderTeamId(o).startsWith('T0') && ['T01', 'T02', 'T03', 'T04'].includes(resolveOrderTeamId(o)));
-    const c2Orders = activeOrders.filter((o) => ['T05', 'T06', 'T07', 'T08'].includes(resolveOrderTeamId(o)));
-    const c3Orders = activeOrders.filter((o) => ['T09', 'T10', 'T11', 'T12', 'T13'].includes(resolveOrderTeamId(o)));
-    const c4Orders = activeOrders.filter((o) => ['T14', 'T15', 'T16', 'T17'].includes(resolveOrderTeamId(o)));
+    const getTeamsForOrder = (o: OrderItem) => (o.activeTeamIds && o.activeTeamIds.length > 0) ? o.activeTeamIds : [resolveOrderTeamId(o)];
+    
+    const c1Orders = activeOrders.filter((o) => getTeamsForOrder(o).some((t) => ['T01', 'T02', 'T03', 'T04'].includes(t)));
+    const c2Orders = activeOrders.filter((o) => getTeamsForOrder(o).some((t) => ['T05', 'T06', 'T07', 'T08'].includes(t)));
+    const c3Orders = activeOrders.filter((o) => getTeamsForOrder(o).some((t) => ['T09', 'T10', 'T11', 'T12', 'T13'].includes(t)));
+    const c4Orders = activeOrders.filter((o) => getTeamsForOrder(o).some((t) => ['T14', 'T15', 'T16', 'T17'].includes(t)));
 
     return {
       total: activeOrders.length,
@@ -555,6 +561,9 @@ export const ProductionFlowDiagram: React.FC<ProductionFlowDiagramProps> = ({
       c3: c3Orders.length,
       c4: c4Orders.length,
       criticalP1: activeOrders.filter((o) => o.priorityLevel === 'P1_CRITICAL').length,
+      onHold: activeOrders.filter((o) => o.status === 'ON_HOLD').length,
+      pendingDeployment: activeOrders.filter((o) => o.status === 'PENDING_DEPLOYMENT' || o.status === 'INTAKE').length,
+      readyDelivery: activeOrders.filter((o) => o.status === 'READY_FOR_DELIVERY').length,
       atRiskOrDelayed: activeOrders.filter(
         (o) => o.scheduleHealth === 'AT_RISK' || o.scheduleHealth === 'DELAYED' || o.scheduleHealth === 'REWORK'
       ).length,
@@ -1251,6 +1260,41 @@ const WorkstationBox: React.FC<WorkstationBoxProps> = ({
                   </div>
                 </div>
 
+                {/* Special Status Badges: Parallel, Hold, Pending, Ready for Delivery */}
+                <div className="mt-1.5 space-y-1">
+                  {order.activeTeamIds && order.activeTeamIds.length > 1 && (
+                    <div className="flex items-center gap-1">
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-indigo-100 text-indigo-900 border border-indigo-200" title={`Đang sản xuất đồng thời tại ${order.activeTeamIds.join(', ')}`}>
+                        ⚡ Song song ({order.activeTeamIds.join(', ')})
+                      </span>
+                    </div>
+                  )}
+
+                  {order.status === 'ON_HOLD' && (
+                    <div>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-rose-100 text-rose-800 border border-rose-300 block truncate" title={`Lý do treo: ${order.holdReason || 'Tạm dừng thi công'}`}>
+                        ⏸️ TREO ĐƠN: {order.holdReason || 'Tạm dừng'}
+                      </span>
+                    </div>
+                  )}
+
+                  {order.status === 'READY_FOR_DELIVERY' && (
+                    <div>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 block">
+                        🚚 CHỜ GIAO XE (ĐÃ KCS ĐẠT)
+                      </span>
+                    </div>
+                  )}
+
+                  {order.status === 'PENDING_DEPLOYMENT' && (
+                    <div>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-blue-100 text-blue-800 border border-blue-300 block">
+                        ⏳ CHỜ TRIỂN KHAI (CHƯA DUYỆT)
+                      </span>
+                    </div>
+                  )}
+                </div>
+
                 {/* Badges for P1 and Delay if present */}
                 {(order.priorityLevel === 'P1_CRITICAL' || order.delayDays || order.scheduleHealth === 'REWORK') && (
                   <div className="mt-2 pt-1.5 border-t border-slate-200/40 dark:border-slate-700/40 flex items-center justify-between gap-1 text-[10px] font-mono">
@@ -1395,6 +1439,39 @@ const OrderInspectorModal: React.FC<OrderInspectorModalProps> = ({
               <strong>{palette.name}</strong> để giám sát chung tiến độ cùng các đơn khác trong cùng đợt xuất xưởng.
             </div>
           </div>
+
+          {/* Parallel Active Teams Banner */}
+          {order.activeTeamIds && order.activeTeamIds.length > 1 && (
+            <div className="p-3 bg-indigo-50/80 border border-indigo-200 rounded-lg text-xs space-y-1.5">
+              <span className="font-bold text-indigo-950 flex items-center gap-1.5">
+                ⚡ Đang Sản Xuất Đồng Thời Tại Các Tổ (Parallel Teams):
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {order.activeTeamIds.map((tId) => (
+                  <span
+                    key={tId}
+                    className="px-2 py-0.5 rounded bg-white text-indigo-900 border border-indigo-300 font-mono font-bold text-[11px] shadow-2xs"
+                  >
+                    {tId}
+                  </span>
+                ))}
+              </div>
+              <p className="text-[11px] text-indigo-700 leading-relaxed">
+                Đơn hàng được phân bổ sản xuất đồng thời tại nhiều trạm/cụm chuyên biệt để rút ngắn tổng thời gian chu kỳ.
+              </p>
+            </div>
+          )}
+
+          {/* Hold Alert Banner */}
+          {order.status === 'ON_HOLD' && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-950 space-y-1">
+              <span className="font-bold text-rose-900 flex items-center gap-1.5">
+                ⏸️ ĐƠN HÀNG ĐANG BỊ TREO (TẠM DỪNG THI CÔNG):
+              </span>
+              <p><strong>Ngày bắt đầu treo:</strong> {order.holdDate || '2026-11-02'}</p>
+              <p><strong>Nguyên nhân treo đơn:</strong> {order.holdReason || 'Chờ khách hàng chốt phương án thiết kế'}</p>
+            </div>
+          )}
 
           {/* Current station details */}
           <div className="border border-slate-200 rounded-lg p-3 space-y-2 bg-white">

@@ -41,6 +41,8 @@ import {
   generateOrdersCsv,
   generateTeamCapacityCsv,
   generateStageCycleNormsCsv,
+  generateCompletedOrdersCsv,
+  generateTeamProgressCsv,
 } from '../services/googleSheetService';
 import {
   OrderItem,
@@ -220,6 +222,16 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
     downloadCsvFile(`DinhMuc_CongDoan_Chuan_${new Date().toISOString().split('T')[0]}.csv`, csv);
   };
 
+  const handleDownloadCompletedCsv = () => {
+    const csv = generateCompletedOrdersCsv(orders);
+    downloadCsvFile(`LuuTru_DonHoanThanh_DCAR_${new Date().toISOString().split('T')[0]}.csv`, csv);
+  };
+
+  const handleDownloadProgressCsv = () => {
+    const csv = generateTeamProgressCsv(orders);
+    downloadCsvFile(`TheoDoi_TienDo_CacTo_${new Date().toISOString().split('T')[0]}.csv`, csv);
+  };
+
   // Nhập file CSV trực tiếp từ máy tính
   const handleImportCsvFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -302,8 +314,10 @@ export const GoogleSheetSyncModal: React.FC<GoogleSheetSyncModalProps> = ({
  */
 var SHEET_NAMES = {
   ORDERS: 'DonHang_LSX',
+  COMPLETED: 'LuuTru_DonHoanThanh',
   CAPACITY: 'NangLuc_NhanSu_To',
   NORMS: 'DinhMuc_CongDoan',
+  PROGRESS: 'TheoDoi_TienDo_CacTo',
   SCHEDULE: 'LichNgay_17To',
   BTP: 'BTP_BanThanhPham',
   DEFECTS: 'ChatLuong_LoiKCS'
@@ -475,6 +489,27 @@ function checkAndInitSheets(ss) {
       'Thời Lượng Chuẩn (Ngày)','Ghi Chú Kỹ Thuật'
     ]);
     formatHeader(s3);
+  }
+
+  // 4. LuuTru_DonHoanThanh
+  if (names.indexOf(SHEET_NAMES.COMPLETED) === -1) {
+    var s4 = ss.insertSheet(SHEET_NAMES.COMPLETED);
+    s4.appendRow([
+      'Mã LSX','Loại Đơn','Tên Khách Hàng','Số Hợp Đồng','Số Khung (VIN)','Dòng Xe Cơ Sở',
+      'Phiên Bản Độ','Màu Da Nội Thất','Ngày Nhận Xe','Hạn Giao Xe','Ngày Hoàn Thành Thực Tế',
+      'Nghiệm Thu KCS 120 Điểm','Địa Điểm Bàn Giao','Người Nhận Xe','Trạng Thái Lưu Trữ','Ngày Lưu Trữ Sheet'
+    ]);
+    formatHeader(s4);
+  }
+
+  // 5. TheoDoi_TienDo_CacTo
+  if (names.indexOf(SHEET_NAMES.PROGRESS) === -1) {
+    var s5 = ss.insertSheet(SHEET_NAMES.PROGRESS);
+    s5.appendRow([
+      'Mã Tổ','Tên Tổ Chế Tác','Cụm Sản Xuất','Thợ Chính Phụ Trách','Số Thợ Phụ','Số Lệnh Đang Chạy',
+      'Danh Sách Mã Đơn','Số Đơn SX Song Song','Công Suất Sử Dụng (%)','Trạng Thái Phụ Tải','Cập Nhật Cuối'
+    ]);
+    formatHeader(s5);
   }
 }
 
@@ -830,27 +865,27 @@ function seedInitialMESData(ss) {
               <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg space-y-1 text-emerald-950">
                 <h4 className="font-bold text-sm flex items-center gap-2">
                   <FileDown className="w-4 h-4 text-emerald-700" />
-                  <span>Tải Về 3 File Google Sheet / Excel Chuẩn Chuẩn Hóa Theo Đơn Vị DCAR:</span>
+                  <span>Tải Về Trọn Bộ 5 Bảng Google Sheet / Excel Chuẩn Hóa Theo Đơn Vị DCAR:</span>
                 </h4>
                 <p className="text-xs text-emerald-800">
-                  Bạn có thể tải ngay 3 file này về mở bằng Google Sheet hoặc Excel, chỉnh sửa nhân sự, năng lực hoặc ngày kế hoạch, sau đó nạp lại vào phần mềm mà không cần cài đặt Apps Script.
+                  Hệ thống hỗ trợ 5 bảng đồng bộ toàn diện: Đơn hàng &amp; Lịch sản xuất tuần, Kho lưu trữ đơn hoàn thành, Năng lực &amp; Nhân sự 17 tổ, Định mức 17 công đoạn, và Theo dõi tiến độ các tổ. Có thể tải về chỉnh sửa trên Google Sheets/Excel rồi nạp lại tức thì!
                 </p>
               </div>
 
-              {/* 3 CSV Download Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* 5 CSV Download Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* File 1: Đơn Hàng & Ngày Kế Hoạch */}
                 <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3 shadow-2xs hover:border-slate-400 transition-all flex flex-col justify-between">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="font-mono text-xs font-bold px-2 py-0.5 bg-amber-100 text-amber-900 rounded">
-                        FILE 1 · ĐƠN HÀNG
+                        BẢNG 1 · ĐƠN HÀNG
                       </span>
-                      <span className="text-[10px] text-slate-400 font-mono">{orders.length} dòng</span>
+                      <span className="text-[10px] text-slate-400 font-mono">{orders.length} đơn</span>
                     </div>
                     <h4 className="font-bold text-sm text-slate-900">DonHang_LSX.csv</h4>
                     <p className="text-[11px] text-slate-500 leading-relaxed">
-                      Lưu thông tin Lệnh sản xuất, khách hàng, ngày nhận xe, hạn giao xe, ngày KH bắt đầu và hoàn thành, loại đơn (G &amp; N), trạng thái BTP tồn kho/xuất cho đơn G.
+                      Lệnh sản xuất, khách hàng, ngày nhận xe, hạn giao, ngày KH bắt đầu &amp; hoàn thành do TPSX duyệt, các tổ SX đồng thời, lý do treo đơn.
                     </p>
                   </div>
                   <button
@@ -862,18 +897,41 @@ function seedInitialMESData(ss) {
                   </button>
                 </div>
 
-                {/* File 2: Năng Lực & Nhân Sự Tổ */}
+                {/* File 2: Kho Lưu Trữ Đơn Hoàn Thành */}
+                <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3 shadow-2xs hover:border-slate-400 transition-all flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-bold px-2 py-0.5 bg-purple-100 text-purple-900 rounded">
+                        BẢNG 2 · LƯU TRỮ
+                      </span>
+                      <span className="text-[10px] text-purple-700 font-mono font-bold">Xuất xưởng</span>
+                    </div>
+                    <h4 className="font-bold text-sm text-slate-900">LuuTru_DonHoanThanh.csv</h4>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Hồ sơ điện tử các đơn xe đã hoàn thành, số khung VIN, ngày xuất xưởng, kết quả KCS 120 điểm đạt chuẩn, địa điểm bàn giao xe.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleDownloadCompletedCsv}
+                    className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
+                  >
+                    <Download className="w-3.5 h-3.5 text-purple-200" />
+                    <span>Tải LuuTru_DonHoanThanh.csv</span>
+                  </button>
+                </div>
+
+                {/* File 3: Năng Lực & Nhân Sự Tổ */}
                 <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3 shadow-2xs hover:border-slate-400 transition-all flex flex-col justify-between">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="font-mono text-xs font-bold px-2 py-0.5 bg-indigo-100 text-indigo-900 rounded">
-                        FILE 2 · NHÂN SỰ TỔ
+                        BẢNG 3 · NHÂN SỰ TỔ
                       </span>
-                      <span className="text-[10px] text-slate-400 font-mono">17 tổ</span>
+                      <span className="text-[10px] text-slate-400 font-mono">17 tổ (95 thợ)</span>
                     </div>
                     <h4 className="font-bold text-sm text-slate-900">NangLuc_NhanSu_To.csv</h4>
                     <p className="text-[11px] text-slate-500 leading-relaxed">
-                      Thông tin năng lực và nhân sự 17 tổ thuộc 4 cụm, số thợ chính, thợ phụ, năng lực xe/ngày, giờ định mức/xe phục vụ phân công công việc và cân đối tải.
+                      Thông tin năng lực và nhân sự 17 tổ thuộc 4 cụm, số thợ chính, thợ phụ, năng lực xe/ngày, giờ định mức/xe phục vụ phân công và điều phối.
                     </p>
                   </div>
                   <button
@@ -885,18 +943,18 @@ function seedInitialMESData(ss) {
                   </button>
                 </div>
 
-                {/* File 3: Định Mức Công Đoạn */}
+                {/* File 4: Định Mức Công Đoạn */}
                 <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3 shadow-2xs hover:border-slate-400 transition-all flex flex-col justify-between">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="font-mono text-xs font-bold px-2 py-0.5 bg-emerald-100 text-emerald-900 rounded">
-                        FILE 3 · ĐỊNH MỨC
+                        BẢNG 4 · ĐỊNH MỨC
                       </span>
                       <span className="text-[10px] text-slate-400 font-mono">{cycleNorms.length} bước</span>
                     </div>
                     <h4 className="font-bold text-sm text-slate-900">DinhMuc_CongDoan.csv</h4>
                     <p className="text-[11px] text-slate-500 leading-relaxed">
-                      Định mức giờ công chuẩn cho 17 công đoạn (S01 → S17), thứ tự chuyền, tổ phụ trách, thời lượng chuẩn ngày để lập kế hoạch phân công và điều chỉnh.
+                      Định mức giờ công chuẩn cho 17 công đoạn (S01 → S17), thứ tự dòng chảy, tổ phụ trách, thời lượng chuẩn ngày để cân bằng chuyền.
                     </p>
                   </div>
                   <button
@@ -905,6 +963,29 @@ function seedInitialMESData(ss) {
                   >
                     <Download className="w-3.5 h-3.5 text-emerald-200" />
                     <span>Tải DinhMuc_CongDoan.csv</span>
+                  </button>
+                </div>
+
+                {/* File 5: Tiến Độ & Tải Các Tổ Realtime */}
+                <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3 shadow-2xs hover:border-slate-400 transition-all flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-bold px-2 py-0.5 bg-blue-100 text-blue-900 rounded">
+                        BẢNG 5 · TIẾN ĐỘ TỔ
+                      </span>
+                      <span className="text-[10px] text-blue-700 font-mono font-bold">Realtime</span>
+                    </div>
+                    <h4 className="font-bold text-sm text-slate-900">TheoDoi_TienDo_CacTo.csv</h4>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      Báo cáo realtime phụ tải, số xe đang thi công, các đơn sản xuất song song, trạng thái hoạt động và tỷ lệ sử dụng công suất từng tổ.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleDownloadProgressCsv}
+                    className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
+                  >
+                    <Download className="w-3.5 h-3.5 text-blue-200" />
+                    <span>Tải TheoDoi_TienDo_CacTo.csv</span>
                   </button>
                 </div>
               </div>
@@ -990,7 +1071,7 @@ function seedInitialMESData(ss) {
                 Cấu trúc các bảng dữ liệu trên Google Sheet được thiết kế đồng bộ hoàn hảo với hệ thống MES:
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {/* Sheet 1 */}
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
                   <div className="flex items-center justify-between">
@@ -998,14 +1079,14 @@ function seedInitialMESData(ss) {
                       1. DonHang_LSX
                     </span>
                     <span className="text-[10px] bg-amber-100 text-amber-800 font-mono font-bold px-1.5 py-0.5 rounded">
-                      Đơn Hàng
+                      Đơn Hàng &amp; KH Tuần
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500">
-                    Lưu Lệnh sản xuất, ngày KH bắt đầu, ngày KH hoàn thành, đơn bán (G), đơn BTP (N), trạng thái tồn kho hoặc đã xuất.
+                    Lưu Lệnh sản xuất, ngày KH bắt đầu, ngày KH hoàn thành do TPSX duyệt, đơn bán (G), đơn BTP (N), các tổ SX đồng thời, lý do treo đơn.
                   </p>
                   <div className="p-2 bg-white rounded border border-slate-200 font-mono text-[10px] text-slate-600 max-h-24 overflow-y-auto">
-                    Mã LSX, Loại Đơn, Tên Khách Hàng, Số Hợp Đồng, Dòng Xe, Ngày Tiếp Nhận, Hạn Giao Xe, Ngày KH Bắt Đầu, Ngày KH Hoàn Thành, Trạng Thái, Tiến Độ %, Cụm Hiện Tại, Tổ Hiện Tại, Hình Thức Thực Hiện (G), Trạng Thái BTP (N), Ghi Chú
+                    Mã LSX, Loại Đơn, Khách Hàng, Số HĐ, Dòng Xe, Bản Độ, Màu Sơn, Màu Da, Ngày Nhận, Hạn Giao, Ngày KH Bắt Đầu, Ngày KH Hoàn Thành, Trạng Thái, Tiến Độ %, Cụm, Tổ, Các Tổ SX Đồng Thời, Lý Do Treo Đơn, Ngày Bắt Đầu Treo, Ghi Chú
                   </div>
                 </div>
 
@@ -1013,7 +1094,25 @@ function seedInitialMESData(ss) {
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-mono font-bold text-slate-900 text-sm">
-                      2. NangLuc_NhanSu_To
+                      2. LuuTru_DonHoanThanh
+                    </span>
+                    <span className="text-[10px] bg-purple-100 text-purple-800 font-mono font-bold px-1.5 py-0.5 rounded">
+                      Lưu Trữ Xuất Xưởng
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Kho hồ sơ điện tử các xe đã hoàn thành xuất xưởng, số khung VIN, ngày xuất xưởng, biên bản KCS 120 điểm đạt chuẩn, địa điểm bàn giao.
+                  </p>
+                  <div className="p-2 bg-white rounded border border-slate-200 font-mono text-[10px] text-slate-600 max-h-24 overflow-y-auto">
+                    Mã LSX, Loại Đơn, Khách Hàng, Số HĐ, Số Khung VIN, Dòng Xe, Bản Độ, Màu Da, Ngày Hạn Giao, Ngày Hoàn Thành Thực Tế, Nghiệm Thu KCS 120 Điểm, Địa Điểm Bàn Giao, Người Nhận, Trạng Thái Lưu Trữ
+                  </div>
+                </div>
+
+                {/* Sheet 3 */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-slate-900 text-sm">
+                      3. NangLuc_NhanSu_To
                     </span>
                     <span className="text-[10px] bg-indigo-100 text-indigo-800 font-mono font-bold px-1.5 py-0.5 rounded">
                       Năng Lực &amp; Thợ
@@ -1027,14 +1126,14 @@ function seedInitialMESData(ss) {
                   </div>
                 </div>
 
-                {/* Sheet 3 */}
+                {/* Sheet 4 */}
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-mono font-bold text-slate-900 text-sm">
-                      3. DinhMuc_CongDoan
+                      4. DinhMuc_CongDoan
                     </span>
                     <span className="text-[10px] bg-emerald-100 text-emerald-800 font-mono font-bold px-1.5 py-0.5 rounded">
-                      Định Mức Giờ
+                      Định Mức Giờ S01-S17
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500">
@@ -1042,6 +1141,24 @@ function seedInitialMESData(ss) {
                   </p>
                   <div className="p-2 bg-white rounded border border-slate-200 font-mono text-[10px] text-slate-600 max-h-24 overflow-y-auto">
                     Mã Định Mức, Dòng Xe, Mã Bước, Tên Công Đoạn, Mã Tổ, Tên Tổ Phụ Trách, Cụm, Thứ Tự Chuyền, Định Mức Giờ Công, Thời Lượng Chuẩn Ngày
+                  </div>
+                </div>
+
+                {/* Sheet 5 */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono font-bold text-slate-900 text-sm">
+                      5. TheoDoi_TienDo_CacTo
+                    </span>
+                    <span className="text-[10px] bg-blue-100 text-blue-800 font-mono font-bold px-1.5 py-0.5 rounded">
+                      Tiến Độ Tổ Realtime
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Báo cáo realtime tình trạng phụ tải, số lệnh sản xuất đang chạy, các đơn thi công song song và tỷ lệ công suất 17 tổ.
+                  </p>
+                  <div className="p-2 bg-white rounded border border-slate-200 font-mono text-[10px] text-slate-600 max-h-24 overflow-y-auto">
+                    Mã Tổ, Tên Tổ, Cụm, Thợ Chính, Số Thợ Phụ, Số Lệnh Đang Chạy, Danh Sách Mã Đơn, Số Đơn SX Song Song, Công Suất Sử Dụng %, Trạng Thái Tải
                   </div>
                 </div>
               </div>
